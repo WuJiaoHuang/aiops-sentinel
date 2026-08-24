@@ -1,10 +1,10 @@
 import cors from "cors";
-import dotenv from "dotenv";
 import express from "express";
 import { diagnoseIncident, tools } from "@aiops-sentinel/core";
 import { initializeDatabase, repository } from "./database";
+import { loadRootEnv } from "./env";
 
-dotenv.config();
+loadRootEnv();
 initializeDatabase();
 
 const app = express();

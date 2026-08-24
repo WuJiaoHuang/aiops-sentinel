@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import dotenv from "dotenv";
 import { diagnoseIncident, listIncidents, logs, services } from "@aiops-sentinel/core";
+import { loadRootEnv } from "./env";
 
-dotenv.config();
+loadRootEnv();
 
 const [, , command, argument] = process.argv;
 
