@@ -17,6 +17,41 @@ app.get("/health", (_request, response) => {
   response.json({ status: "ok", service: "aiops-sentinel-api" });
 });
 
+app.get("/api/ai/status", (_request, response) => {
+  response.json({
+    provider: "DeepSeek",
+    configured: Boolean(process.env.DEEPSEEK_API_KEY),
+    baseUrl: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
+    model: process.env.DEEPSEEK_MODEL ?? "deepseek-chat",
+    fallback: "未配置或调用失败时自动使用本地 mock 诊断"
+  });
+});
+
+app.post("/api/ai/test", async (_request, response) => {
+  try {
+    const task = await diagnoseIncident("inc-20260824-001", {
+      deepseekApiKey: process.env.DEEPSEEK_API_KEY,
+      deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL,
+      deepseekModel: process.env.DEEPSEEK_MODEL
+    });
+
+    response.json({
+      ok: true,
+      modelSource: task.diagnosis.modelSource,
+      message:
+        task.diagnosis.modelSource === "deepseek"
+          ? "DeepSeek 调用成功，当前诊断结果来自真实模型。"
+          : "当前使用 mock 诊断，可能是未配置 API Key 或模型调用失败。",
+      diagnosis: task.diagnosis
+    });
+  } catch (error) {
+    response.status(500).json({
+      ok: false,
+      message: error instanceof Error ? error.message : "DeepSeek 测试失败"
+    });
+  }
+});
+
 app.get("/api/services", (_request, response) => {
   response.json(repository.services());
 });

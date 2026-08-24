@@ -58,6 +58,7 @@ export type EvidenceItem = {
 
 export type Diagnosis = {
   incidentId: string;
+  modelSource: "deepseek" | "mock";
   rootCause: string;
   confidence: number;
   impact: string;

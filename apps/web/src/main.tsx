@@ -21,6 +21,14 @@ type ConsoleData = {
   diagnosisTasks: DiagnosisTask[];
 };
 
+type AiStatus = {
+  provider: string;
+  configured: boolean;
+  baseUrl: string;
+  model: string;
+  fallback: string;
+};
+
 const fallbackConsoleData: ConsoleData = {
   services: fallbackServices,
   incidents: fallbackIncidents,
@@ -58,6 +66,7 @@ const App = () => {
   const [loadingConsole, setLoadingConsole] = React.useState(true);
   const [loadingDiagnosis, setLoadingDiagnosis] = React.useState(false);
   const [apiMode, setApiMode] = React.useState<"api" | "local">("local");
+  const [aiStatus, setAiStatus] = React.useState<AiStatus | null>(null);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [rollbackPlan, setRollbackPlan] = React.useState<string[]>([]);
   const [copyState, setCopyState] = React.useState("复制 CLI 诊断命令");
@@ -79,10 +88,12 @@ const App = () => {
       const data = await fetchJson<ConsoleData>(`${apiBaseUrl}/api/console`);
       setConsoleData(data);
       setApiMode("api");
+      setAiStatus(await fetchJson<AiStatus>(`${apiBaseUrl}/api/ai/status`));
       setErrorMessage(null);
     } catch {
       setConsoleData(fallbackConsoleData);
       setApiMode("local");
+      setAiStatus(null);
       setErrorMessage("后端 API 暂不可用，当前使用本地 mock 数据演示。");
     } finally {
       setLoadingConsole(false);
@@ -183,6 +194,10 @@ const App = () => {
           <span>数据来源</span>
           <strong>{apiMode === "api" ? "后端 API" : "本地 mock"}</strong>
         </div>
+        <div className="runtime">
+          <span>AI 模式</span>
+          <strong>{aiStatus?.configured ? `${aiStatus.provider} · ${aiStatus.model}` : "Mock 兜底"}</strong>
+        </div>
       </aside>
 
       <section className="content">
@@ -275,7 +290,9 @@ const App = () => {
             <article className="panel wide">
               <div className="panelHead">
                 <h2>Agent 诊断结论</h2>
-                <span className="muted">DeepSeek / mock 双模式</span>
+                <span className="muted">
+                  {diagnosisTask?.diagnosis.modelSource === "deepseek" ? "真实 DeepSeek" : "Mock 兜底"}
+                </span>
               </div>
               {diagnosisTask ? (
                 <div className="diagnosis">

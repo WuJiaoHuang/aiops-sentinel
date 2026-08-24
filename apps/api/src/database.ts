@@ -260,6 +260,7 @@ export const repository = {
       steps: readJson(row.steps, []),
       diagnosis: readJson(row.diagnosis, {
         incidentId: row.incident_id,
+        modelSource: "mock",
         rootCause: "暂无诊断结果",
         confidence: 0,
         impact: "暂无",

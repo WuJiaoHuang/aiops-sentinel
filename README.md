@@ -25,6 +25,8 @@
   - 支持后端 API 不可用时自动切换到本地 mock 数据
 - Node.js API 服务：
   - `GET /health`
+  - `GET /api/ai/status`
+  - `POST /api/ai/test`
   - `GET /api/services`
   - `GET /api/incidents`
   - `GET /api/console`
@@ -51,6 +53,7 @@
   - 返回每一步诊断动作、工具名称、耗时和执行摘要
   - 调用 DeepSeek 生成诊断结果
   - 如果没有配置 DeepSeek API Key，则自动使用 mock 结果，保证本地演示稳定
+  - 前端会显示当前诊断来自真实 DeepSeek 还是 mock 兜底
 - 本地 CLI 工具：
   - `scan`：扫描当前服务和告警
   - `diagnose <incidentId>`：诊断指定故障
@@ -111,11 +114,21 @@ http://localhost:8787
 DEEPSEEK_API_KEY=你的 DeepSeek API Key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-chat
+VITE_API_BASE_URL=http://localhost:8787
 ```
 
 注意：`.env` 已经加入 `.gitignore`，不会提交到 GitHub。
 
 如果没有配置 `DEEPSEEK_API_KEY`，系统仍然可以完整运行，只是 AI 诊断结果会使用本地 mock，方便稳定演示。
+
+配置完成后可以用下面的接口检查当前 AI 模式：
+
+```bash
+curl http://localhost:8787/api/ai/status
+curl -X POST http://localhost:8787/api/ai/test
+```
+
+如果 `modelSource` 返回 `deepseek`，说明真实 DeepSeek 调用成功；如果返回 `mock`，说明当前正在使用本地兜底结果。
 
 ## 数据库说明
 

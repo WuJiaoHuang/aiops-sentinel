@@ -8,8 +8,9 @@
 4. 用户触发诊断后，API 调用 Agent 并生成诊断任务。
 5. Agent 依次调用 MCP 风格工具，收集日志、指标、依赖和回滚建议。
 6. DeepSeek adapter 在存在 API Key 时生成真实诊断结论。
-7. 如果 DeepSeek 不可用，系统返回确定性的 mock 诊断结果。
-8. API 将诊断任务写入 SQLite，前端展示诊断结论、步骤流和历史记录。
+7. DeepSeek 返回内容会经过 JSON 提取和字段归一化，避免 Markdown 包裹或字段缺失导致页面异常。
+8. 如果 DeepSeek 不可用，系统返回确定性的 mock 诊断结果。
+9. API 将诊断任务写入 SQLite，前端展示诊断结论、步骤流和历史记录。
 
 ## MCP 风格工具契约
 
@@ -55,3 +56,18 @@ API 启动时会自动创建 `data/sentinel.sqlite`，并写入服务、告警�
 - 最终诊断结论
 
 下一阶段可以继续扩展为流式步骤推送、真实指标接入和用户处置记录。
+
+## DeepSeek 集成
+
+后端通过 `.env` 读取 DeepSeek 配置：
+
+- `DEEPSEEK_API_KEY`
+- `DEEPSEEK_BASE_URL`
+- `DEEPSEEK_MODEL`
+
+API 提供两个联调接口：
+
+- `GET /api/ai/status`：查看当前是否配置 DeepSeek。
+- `POST /api/ai/test`：使用内置故障执行一次测试诊断。
+
+诊断结果里的 `modelSource` 用于区分真实模型和 mock 兜底，前端会直接展示这个状态。

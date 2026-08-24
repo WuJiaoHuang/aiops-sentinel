@@ -8,6 +8,7 @@ type DeepSeekConfig = {
 
 export const buildMockDiagnosis = (incident: Incident, evidence: EvidenceItem[]): Diagnosis => ({
   incidentId: incident.id,
+  modelSource: "mock",
   rootCause:
     incident.serviceId === "svc-order"
       ? "本次下单失败大概率由 order-service 最新发布后支付服务超时向主链路扩散导致。"
@@ -26,6 +27,33 @@ export const buildMockDiagnosis = (incident: Incident, evidence: EvidenceItem[])
       ? "如果错误率继续 5 分钟保持在 10% 以上，建议执行灰度回滚。"
       : "在确认基础设施压力前，不建议立即回滚业务代码。",
   evidence
+});
+
+const extractJson = (content: string) => {
+  const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) {
+    return fenced[1].trim();
+  }
+
+  const firstBrace = content.indexOf("{");
+  const lastBrace = content.lastIndexOf("}");
+
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return content.slice(firstBrace, lastBrace + 1);
+  }
+
+  return content;
+};
+
+const normalizeDiagnosis = (value: Partial<Diagnosis>, incident: Incident, evidence: EvidenceItem[]): Diagnosis => ({
+  incidentId: incident.id,
+  modelSource: "deepseek",
+  rootCause: value.rootCause || "DeepSeek 已返回结果，但缺少明确根因字段。",
+  confidence: typeof value.confidence === "number" ? Math.min(Math.max(value.confidence, 0), 1) : 0.6,
+  impact: value.impact || "DeepSeek 未返回明确影响范围。",
+  recommendation: value.recommendation || "建议结合日志、指标和依赖链路继续排查。",
+  rollbackAdvice: value.rollbackAdvice || "当前证据不足，暂不建议直接回滚。",
+  evidence: Array.isArray(value.evidence) && value.evidence.length > 0 ? value.evidence : evidence
 });
 
 export const requestDeepSeekDiagnosis = async (
@@ -50,7 +78,7 @@ export const requestDeepSeekDiagnosis = async (
         {
           role: "system",
           content:
-            "你是一个 AIOps 故障诊断 Agent。请返回严格 JSON，字段包含 incidentId、rootCause、confidence、impact、recommendation、rollbackAdvice、evidence。除字段名外，字段内容使用中文。"
+            "你是一个 AIOps 故障诊断 Agent。只返回严格 JSON，不要输出 Markdown。字段包含 incidentId、rootCause、confidence、impact、recommendation、rollbackAdvice、evidence。confidence 必须是 0 到 1 的数字。除字段名外，字段内容使用中文。"
         },
         {
           role: "user",
@@ -72,7 +100,7 @@ export const requestDeepSeekDiagnosis = async (
   }
 
   try {
-    return JSON.parse(content) as Diagnosis;
+    return normalizeDiagnosis(JSON.parse(extractJson(content)) as Partial<Diagnosis>, incident, evidence);
   } catch {
     return buildMockDiagnosis(incident, evidence);
   }
