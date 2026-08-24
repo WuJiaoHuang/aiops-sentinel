@@ -27,10 +27,17 @@
   - `GET /health`
   - `GET /api/services`
   - `GET /api/incidents`
+  - `GET /api/console`
   - `GET /api/logs`
   - `GET /api/metrics/:serviceId`
+  - `GET /api/diagnosis-tasks`
   - `POST /api/tools/:toolName`
   - `POST /api/incidents/:incidentId/diagnose`
+- SQLite 持久化：
+  - API 启动时自动创建 `data/sentinel.sqlite`
+  - 自动写入服务、告警、日志、指标等种子数据
+  - 每次 Agent 诊断都会保存为一条诊断任务
+  - 前端可以查看当前故障的历史诊断记录
 - MCP 风格工具层：
   - `log_search`：查询服务日志
   - `metric_query`：查询服务指标
@@ -108,6 +115,18 @@ DEEPSEEK_MODEL=deepseek-chat
 
 注意：`.env` 已经加入 `.gitignore`，不会提交到 GitHub。
 
+如果没有配置 `DEEPSEEK_API_KEY`，系统仍然可以完整运行，只是 AI 诊断结果会使用本地 mock，方便稳定演示。
+
+## 数据库说明
+
+本项目使用 Node.js 自带的 SQLite 能力，数据库文件会自动生成在：
+
+```text
+data/sentinel.sqlite
+```
+
+这个文件属于本地运行数据，已经加入 `.gitignore`，不会提交到 GitHub。
+
 ## CLI 使用
 
 ```bash
@@ -134,5 +153,5 @@ docs            架构说明和简历材料
 
 - 前端改为真正调用后端 API，而不是直接读取本地 core 数据
 - 增加更多服务、日志、指标和故障类型
-- 增加数据库持久化
 - 增加测试用例和部署说明
+- 增加真实 DeepSeek API 联调示例

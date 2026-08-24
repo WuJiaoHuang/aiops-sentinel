@@ -7,3 +7,6 @@ dist
 coverage
 .DS_Store
 *.log
+data/*.sqlite
+data/*.sqlite-shm
+data/*.sqlite-wal

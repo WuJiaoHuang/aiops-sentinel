@@ -454,6 +454,48 @@ dd {
   cursor: pointer;
 }
 
+.rollbackPlan {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.rollbackPlan li {
+  margin-bottom: 6px;
+}
+
+.history {
+  display: grid;
+  gap: 10px;
+}
+
+.history button {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history button:hover {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.history strong,
+.history span {
+  display: block;
+}
+
+.history span {
+  color: #64748b;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
 @media (max-width: 920px) {
   .shell {
     grid-template-columns: 1fr;

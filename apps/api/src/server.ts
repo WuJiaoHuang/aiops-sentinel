@@ -1,9 +1,11 @@
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
-import { diagnoseIncident, listIncidents, logs, metrics, services, tools } from "@aiops-sentinel/core";
+import { diagnoseIncident, tools } from "@aiops-sentinel/core";
+import { initializeDatabase, repository } from "./database";
 
 dotenv.config();
+initializeDatabase();
 
 const app = express();
 const port = Number(process.env.PORT ?? 8787);
@@ -16,29 +18,35 @@ app.get("/health", (_request, response) => {
 });
 
 app.get("/api/services", (_request, response) => {
-  response.json(services);
+  response.json(repository.services());
 });
 
 app.get("/api/incidents", (_request, response) => {
-  response.json(listIncidents());
+  response.json(repository.incidents());
 });
 
 app.get("/api/console", (_request, response) => {
   response.json({
-    services,
-    incidents: listIncidents(),
-    logs,
-    metrics
+    services: repository.services(),
+    incidents: repository.incidents(),
+    logs: repository.logs(),
+    metrics: repository.metrics(),
+    diagnosisTasks: repository.diagnosisTasks()
   });
 });
 
 app.get("/api/logs", (request, response) => {
   const serviceId = String(request.query.serviceId ?? "");
-  response.json(serviceId ? logs.filter((log) => log.serviceId === serviceId) : logs);
+  response.json(repository.logs(serviceId || undefined));
 });
 
 app.get("/api/metrics/:serviceId", (request, response) => {
-  response.json(metrics[request.params.serviceId] ?? []);
+  response.json(repository.metrics()[request.params.serviceId] ?? []);
+});
+
+app.get("/api/diagnosis-tasks", (request, response) => {
+  const incidentId = request.query.incidentId ? String(request.query.incidentId) : undefined;
+  response.json(repository.diagnosisTasks(incidentId));
 });
 
 app.post("/api/tools/:toolName", (request, response) => {
@@ -56,15 +64,16 @@ app.post("/api/tools/:toolName", (request, response) => {
 
 app.post("/api/incidents/:incidentId/diagnose", async (request, response) => {
   try {
-    const diagnosis = await diagnoseIncident(request.params.incidentId, {
+    const task = await diagnoseIncident(request.params.incidentId, {
       deepseekApiKey: process.env.DEEPSEEK_API_KEY,
       deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL,
       deepseekModel: process.env.DEEPSEEK_MODEL
     });
+    repository.saveDiagnosisTask(task);
 
-    response.json(diagnosis);
+    response.json(task);
   } catch (error) {
-    response.status(404).json({ message: error instanceof Error ? error.message : "Diagnosis failed" });
+    response.status(404).json({ message: error instanceof Error ? error.message : "诊断失败" });
   }
 });
 

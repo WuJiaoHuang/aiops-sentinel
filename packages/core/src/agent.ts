@@ -124,7 +124,7 @@ export const diagnoseIncident = async (incidentId: string, config: AgentConfig =
   const toolDurationMs = steps.reduce((total, step) => total + step.durationMs, 0);
 
   return {
-    id: `task-${incidentId}`,
+    id: `task-${incidentId}-${startedAt.getTime()}`,
     incidentId,
     status: "completed",
     startedAt: startedAt.toISOString(),

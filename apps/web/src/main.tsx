@@ -18,13 +18,15 @@ type ConsoleData = {
   incidents: Incident[];
   logs: LogEntry[];
   metrics: Record<string, MetricPoint[]>;
+  diagnosisTasks: DiagnosisTask[];
 };
 
 const fallbackConsoleData: ConsoleData = {
   services: fallbackServices,
   incidents: fallbackIncidents,
   logs: fallbackLogs,
-  metrics: fallbackMetrics
+  metrics: fallbackMetrics,
+  diagnosisTasks: []
 };
 
 const severityLabel = {
@@ -57,6 +59,8 @@ const App = () => {
   const [loadingDiagnosis, setLoadingDiagnosis] = React.useState(false);
   const [apiMode, setApiMode] = React.useState<"api" | "local">("local");
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const [rollbackPlan, setRollbackPlan] = React.useState<string[]>([]);
+  const [copyState, setCopyState] = React.useState("复制 CLI 诊断命令");
 
   const selectedIncident =
     consoleData.incidents.find((incident) => incident.id === selectedIncidentId) ?? consoleData.incidents[0];
@@ -64,6 +68,7 @@ const App = () => {
     consoleData.services.find((service) => service.id === selectedIncident.serviceId) ?? consoleData.services[0];
   const metricSeries = consoleData.metrics[selectedService.id] ?? [];
   const serviceLogs = consoleData.logs.filter((log) => log.serviceId === selectedService.id);
+  const diagnosisHistory = consoleData.diagnosisTasks.filter((task) => task.incidentId === selectedIncident.id);
   const dependencyNames = selectedService.dependencies
     .map((dependencyId) => consoleData.services.find((service) => service.id === dependencyId)?.name)
     .filter(Boolean);
@@ -93,15 +98,52 @@ const App = () => {
           : await diagnoseIncident(incidentId);
 
       setDiagnosisTask(task);
+      setConsoleData((current) => ({
+        ...current,
+        diagnosisTasks: [task, ...current.diagnosisTasks.filter((item) => item.id !== task.id)]
+      }));
       setErrorMessage(null);
     } catch {
       const task = await diagnoseIncident(incidentId);
       setDiagnosisTask(task);
+      setConsoleData((current) => ({
+        ...current,
+        diagnosisTasks: [task, ...current.diagnosisTasks.filter((item) => item.id !== task.id)]
+      }));
       setApiMode("local");
       setErrorMessage("诊断接口调用失败，已切换到本地 Agent mock 结果。");
     } finally {
       setLoadingDiagnosis(false);
     }
+  };
+
+  const generateRollbackPlan = () => {
+    if (!diagnosisTask) {
+      setRollbackPlan(["请先完成一次 Agent 诊断，再生成回滚预案。"]);
+      return;
+    }
+
+    setRollbackPlan([
+      `确认影响服务：${selectedService.name}，当前故障等级为${severityLabel[selectedIncident.severity]}。`,
+      "通知业务、研发、测试和值班负责人，冻结相关服务的新发布。",
+      "保留当前日志、指标和 Agent 诊断证据，避免回滚后丢失现场。",
+      diagnosisTask.diagnosis.rollbackAdvice,
+      "按灰度批次回滚最近一次发布，并持续观察错误率、延迟和核心链路成功率。",
+      "回滚后补充复盘记录，沉淀监控阈值、降级策略和自动化检查项。"
+    ]);
+  };
+
+  const copyCliCommand = async () => {
+    const command = `npm run cli -- diagnose ${selectedIncident.id}`;
+
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopyState("已复制 CLI 命令");
+    } catch {
+      setCopyState(command);
+    }
+
+    window.setTimeout(() => setCopyState("复制 CLI 诊断命令"), 1800);
   };
 
   React.useEffect(() => {
@@ -306,14 +348,43 @@ const App = () => {
                 <h2>处置动作</h2>
                 <span className="muted">演示闭环</span>
               </div>
-              <button>
+              <button onClick={generateRollbackPlan}>
                 <RotateCcw size={16} />
                 生成回滚预案
               </button>
-              <button>
+              <button onClick={() => void copyCliCommand()}>
                 <Terminal size={16} />
-                复制 CLI 诊断命令
+                {copyState}
               </button>
+              {rollbackPlan.length > 0 && (
+                <ol className="rollbackPlan">
+                  {rollbackPlan.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ol>
+              )}
+            </article>
+
+            <article className="panel wide">
+              <div className="panelHead">
+                <h2>历史诊断</h2>
+                <span className="muted">{diagnosisHistory.length} 条记录</span>
+              </div>
+              <div className="history">
+                {diagnosisHistory.length > 0 ? (
+                  diagnosisHistory.slice(0, 4).map((task) => (
+                    <button key={task.id} onClick={() => setDiagnosisTask(task)}>
+                      <strong>{new Date(task.completedAt).toLocaleString("zh-CN")}</strong>
+                      <span>
+                        {task.steps.length} 个步骤 · {task.totalDurationMs}ms · 置信度{" "}
+                        {Math.round(task.diagnosis.confidence * 100)}%
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <p className="muted">暂无历史诊断记录，点击“重新诊断”后会自动保存。</p>
+                )}
+              </div>
             </article>
           </section>
         </section>

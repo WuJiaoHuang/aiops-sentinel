@@ -2,15 +2,16 @@
 
 ## Runtime Flow
 
-1. The user opens the React incident console and selects an incident.
-2. The UI requests or locally runs a diagnosis for the selected incident.
-3. The Agent loads incident context and invokes MCP-style tools.
-4. Tools collect logs, metrics, dependency information, and rollback signals.
-5. The DeepSeek adapter creates a diagnosis when an API key exists.
-6. If DeepSeek is unavailable, the adapter returns a deterministic mock diagnosis.
-7. The UI and CLI render the same diagnosis model.
+1. 用户打开 React 故障控制台并选择一条故障。
+2. 前端优先请求 Node.js API 获取服务、告警、日志、指标和历史诊断任务。
+3. 如果 API 不可用，前端自动切换到本地 mock 数据，保证演示稳定。
+4. 用户触发诊断后，API 调用 Agent 并生成诊断任务。
+5. Agent 依次调用 MCP 风格工具，收集日志、指标、依赖和回滚建议。
+6. DeepSeek adapter 在存在 API Key 时生成真实诊断结论。
+7. 如果 DeepSeek 不可用，系统返回确定性的 mock 诊断结果。
+8. API 将诊断任务写入 SQLite，前端展示诊断结论、步骤流和历史记录。
 
-## MCP-Style Tool Contract
+## MCP 风格工具契约
 
 Every tool follows the same structure:
 
@@ -25,17 +26,32 @@ type ToolResult<T> = {
 };
 ```
 
-This keeps tools reusable across frontend demos, API endpoints, CLI commands, and Agent workflows.
+这样可以让同一套工具同时复用于 API、CLI、前端演示和 Agent 工作流。
 
-## Agent Workflow
+## Agent 工作流
 
-The diagnosis Agent is intentionally deterministic in the first version:
+当前诊断 Agent 的流程是确定性的：
 
-- Load incident summary.
-- Search related service logs.
-- Query the latest metric window.
-- Trace service dependencies.
-- Ask rollback advisor for release-risk guidance.
-- Send the evidence chain to DeepSeek or mock fallback.
+- 读取故障上下文。
+- 检索受影响服务日志。
+- 查询最新指标窗口。
+- 追踪服务依赖关系。
+- 调用回滚建议工具。
+- 汇总证据链。
+- 调用 DeepSeek 或 mock fallback 生成诊断结论。
+- 返回诊断步骤流、工具耗时、证据链和最终结论。
 
-The next stage should persist diagnosis tasks and stream Agent steps to the UI.
+## SQLite 持久化
+
+API 启动时会自动创建 `data/sentinel.sqlite`，并写入服务、告警、日志、指标等种子数据。
+
+每次调用 `POST /api/incidents/:incidentId/diagnose` 后，系统都会保存一条诊断任务，包含：
+
+- 任务 ID
+- 故障 ID
+- 开始和完成时间
+- Agent 步骤流
+- 工具调用耗时
+- 最终诊断结论
+
+下一阶段可以继续扩展为流式步骤推送、真实指标接入和用户处置记录。
