@@ -35,27 +35,27 @@ export const diagnoseIncident = async (incidentId: string, config: AgentConfig =
     },
     {
       source: logResult.metadata.tool,
-      title: "Log anomalies",
-      detail: logResult.result.map((log) => `${log.level}: ${log.message}`).join("; ") || "No recent log anomaly",
+      title: "日志异常",
+      detail: logResult.result.map((log) => `${log.level}: ${log.message}`).join("；") || "暂无近期日志异常",
       confidence: 0.78
     },
     {
       source: metricResult.metadata.tool,
-      title: "Metric window",
+      title: "指标窗口",
       detail: latestMetric
-        ? `Latest latency ${latestMetric.latencyMs}ms, error rate ${latestMetric.errorRate}%, cpu ${latestMetric.cpu}%.`
-        : "No metric window available.",
+        ? `最新延迟 ${latestMetric.latencyMs}ms，错误率 ${latestMetric.errorRate}%，CPU ${latestMetric.cpu}%。`
+        : "暂无可用指标窗口。",
       confidence: 0.8
     },
     {
       source: traceResult.metadata.tool,
-      title: "Dependency trace",
-      detail: `Dependencies: ${traceResult.result.dependencies.map((service) => service.name).join(", ") || "none"}.`,
+      title: "依赖链路",
+      detail: `依赖服务：${traceResult.result.dependencies.map((service) => service.name).join("、") || "无"}。`,
       confidence: 0.65
     },
     {
       source: rollbackResult.metadata.tool,
-      title: "Rollback advisor",
+      title: "回滚建议",
       detail: rollbackResult.result.advice,
       confidence: rollbackResult.result.shouldRollback ? 0.82 : 0.58
     }

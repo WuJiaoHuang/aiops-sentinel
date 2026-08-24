@@ -7,6 +7,11 @@ import "./styles.css";
 const selectedIncident = incidents[0];
 const selectedService = services.find((service) => service.id === selectedIncident.serviceId) ?? services[0];
 const metricSeries = metrics[selectedService.id] ?? [];
+const severityLabel = {
+  critical: "严重",
+  warning: "警告",
+  info: "提示"
+} as const;
 
 const App = () => {
   const [diagnosis, setDiagnosis] = React.useState<Awaited<ReturnType<typeof diagnoseIncident>> | null>(null);
@@ -30,19 +35,19 @@ const App = () => {
           <span>AIOps Sentinel</span>
         </div>
         <nav>
-          <button className="active" title="Incident console">
+          <button className="active" title="故障控制台">
             <AlertTriangle size={18} />
-            Incidents
+            故障
           </button>
-          <button title="Service topology">
+          <button title="服务拓扑">
             <Network size={18} />
-            Topology
+            拓扑
           </button>
-          <button title="Agent diagnosis">
+          <button title="Agent 诊断">
             <Bot size={18} />
-            Agent
+            诊断
           </button>
-          <button title="CLI workflow">
+          <button title="CLI 工作流">
             <Terminal size={18} />
             CLI
           </button>
@@ -52,33 +57,33 @@ const App = () => {
       <section className="content">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Production Incident</p>
+            <p className="eyebrow">生产故障</p>
             <h1>{selectedIncident.title}</h1>
           </div>
           <button className="primary" onClick={runDiagnosis} disabled={loading}>
             <Bot size={18} />
-            {loading ? "Diagnosing" : "Run Diagnosis"}
+            {loading ? "诊断中" : "重新诊断"}
           </button>
         </header>
 
         <section className="grid">
           <article className="panel incident">
             <div className="panelHead">
-              <h2>Incident Status</h2>
-              <span className={`badge ${selectedIncident.severity}`}>{selectedIncident.severity}</span>
+              <h2>故障状态</h2>
+              <span className={`badge ${selectedIncident.severity}`}>{severityLabel[selectedIncident.severity]}</span>
             </div>
             <p>{selectedIncident.summary}</p>
             <dl>
               <div>
-                <dt>Service</dt>
+                <dt>服务</dt>
                 <dd>{selectedService.name}</dd>
               </div>
               <div>
-                <dt>Owner</dt>
+                <dt>负责人</dt>
                 <dd>{selectedService.owner}</dd>
               </div>
               <div>
-                <dt>Runtime</dt>
+                <dt>运行环境</dt>
                 <dd>{selectedService.runtime}</dd>
               </div>
             </dl>
@@ -86,8 +91,8 @@ const App = () => {
 
           <article className="panel">
             <div className="panelHead">
-              <h2>Metric Window</h2>
-              <span className="muted">latency / error rate</span>
+              <h2>指标窗口</h2>
+              <span className="muted">延迟 / 错误率</span>
             </div>
             <div className="chart">
               {metricSeries.map((point) => (
@@ -101,8 +106,8 @@ const App = () => {
 
           <article className="panel wide">
             <div className="panelHead">
-              <h2>Agent Diagnosis</h2>
-              <span className="muted">DeepSeek-ready with mock fallback</span>
+              <h2>Agent 诊断</h2>
+              <span className="muted">支持 DeepSeek，未配置时自动 mock</span>
             </div>
             {diagnosis ? (
               <div className="diagnosis">
@@ -110,19 +115,19 @@ const App = () => {
                 <p>{diagnosis.impact}</p>
                 <p>{diagnosis.recommendation}</p>
                 <div className="confidence">
-                  <span>Confidence</span>
+                  <span>置信度</span>
                   <strong>{Math.round(diagnosis.confidence * 100)}%</strong>
                 </div>
               </div>
             ) : (
-              <p className="muted">Waiting for diagnosis...</p>
+              <p className="muted">正在等待诊断结果...</p>
             )}
           </article>
 
           <article className="panel">
             <div className="panelHead">
-              <h2>Evidence Chain</h2>
-              <span className="muted">MCP tools</span>
+              <h2>证据链</h2>
+              <span className="muted">MCP 工具调用</span>
             </div>
             <div className="evidence">
               {diagnosis?.evidence.map((item) => (
@@ -136,7 +141,7 @@ const App = () => {
 
           <article className="panel">
             <div className="panelHead">
-              <h2>Recent Logs</h2>
+              <h2>近期日志</h2>
               <span className="muted">{selectedService.name}</span>
             </div>
             <div className="logs">

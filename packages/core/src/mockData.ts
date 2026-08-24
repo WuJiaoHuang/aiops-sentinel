@@ -42,20 +42,20 @@ export const incidents: Incident[] = [
   {
     id: "inc-20260824-001",
     serviceId: "svc-order",
-    title: "Checkout error rate spike",
+    title: "下单接口错误率突增",
     severity: "critical",
     status: "investigating",
     startedAt: "2026-08-24T08:12:00.000Z",
-    summary: "Checkout API error rate rose above 12% after the latest deployment."
+    summary: "最近一次发布后，下单接口错误率升至 12% 以上，影响支付确认链路。"
   },
   {
     id: "inc-20260824-002",
     serviceId: "svc-auth",
-    title: "Login latency above SLO",
+    title: "登录接口延迟超过 SLO",
     severity: "warning",
     status: "open",
     startedAt: "2026-08-24T09:25:00.000Z",
-    summary: "P95 login latency is above 900ms for mobile clients."
+    summary: "移动端登录请求 P95 延迟超过 900ms，用户仍可登录但体验明显变慢。"
   }
 ];
 
@@ -65,7 +65,7 @@ export const logs: LogEntry[] = [
     serviceId: "svc-order",
     timestamp: "2026-08-24T08:14:31.000Z",
     level: "error",
-    message: "Payment provider timeout after retry budget exhausted",
+    message: "支付服务重试预算耗尽后仍然超时",
     traceId: "tr-7801"
   },
   {
@@ -73,7 +73,7 @@ export const logs: LogEntry[] = [
     serviceId: "svc-order",
     timestamp: "2026-08-24T08:15:02.000Z",
     level: "error",
-    message: "POST /checkout failed with upstream_timeout",
+    message: "POST /checkout 请求因上游超时失败",
     traceId: "tr-7802"
   },
   {
@@ -81,7 +81,7 @@ export const logs: LogEntry[] = [
     serviceId: "svc-auth",
     timestamp: "2026-08-24T09:29:10.000Z",
     level: "warn",
-    message: "Redis token lookup p95 latency exceeded 420ms",
+    message: "Redis token 查询 P95 延迟超过 420ms",
     traceId: "tr-1102"
   }
 ];

@@ -52,8 +52,8 @@ export const tools = {
     return timed("rollback_advisor", {
       shouldRollback,
       advice: shouldRollback
-        ? "Error rate is above rollback threshold. Prepare a guarded rollback and keep payment traffic in degraded mode."
-        : "Rollback is not required yet. Continue mitigation and observe the next two metric windows."
+        ? "错误率已超过回滚阈值，建议准备受控回滚，并保持支付链路降级策略。"
+        : "暂不需要回滚，建议继续执行缓解措施，并观察后续两个指标窗口。"
     });
   }
 };
