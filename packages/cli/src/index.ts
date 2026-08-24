@@ -28,11 +28,11 @@ const main = async () => {
         throw new Error("Usage: sentinel diagnose <incidentId>");
       }
       print(
-        await diagnoseIncident(argument, {
+        (await diagnoseIncident(argument, {
           deepseekApiKey: process.env.DEEPSEEK_API_KEY,
           deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL,
           deepseekModel: process.env.DEEPSEEK_MODEL
-        })
+        })).diagnosis
       );
       break;
     case "logs":
@@ -46,16 +46,18 @@ const main = async () => {
         throw new Error("Usage: sentinel report <incidentId>");
       }
       {
-        const diagnosis = await diagnoseIncident(argument, {
+        const task = await diagnoseIncident(argument, {
           deepseekApiKey: process.env.DEEPSEEK_API_KEY,
           deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL,
           deepseekModel: process.env.DEEPSEEK_MODEL
         });
-        console.log(`# Incident Report: ${argument}`);
-        console.log(`Root cause: ${diagnosis.rootCause}`);
-        console.log(`Impact: ${diagnosis.impact}`);
-        console.log(`Recommendation: ${diagnosis.recommendation}`);
-        console.log(`Rollback: ${diagnosis.rollbackAdvice}`);
+        const diagnosis = task.diagnosis;
+        console.log(`# 故障报告：${argument}`);
+        console.log(`根因判断：${diagnosis.rootCause}`);
+        console.log(`影响范围：${diagnosis.impact}`);
+        console.log(`处置建议：${diagnosis.recommendation}`);
+        console.log(`回滚建议：${diagnosis.rollbackAdvice}`);
+        console.log(`Agent 步骤数：${task.steps.length}`);
       }
       break;
     default:

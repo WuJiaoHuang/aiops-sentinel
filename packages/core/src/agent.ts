@@ -1,6 +1,6 @@
 import { requestDeepSeekDiagnosis } from "./deepseek";
 import { getIncident, tools } from "./tools";
-import type { Diagnosis, EvidenceItem } from "./types";
+import type { AgentStep, DiagnosisTask, EvidenceItem } from "./types";
 
 export type AgentConfig = {
   deepseekApiKey?: string;
@@ -8,11 +8,12 @@ export type AgentConfig = {
   deepseekModel?: string;
 };
 
-export const diagnoseIncident = async (incidentId: string, config: AgentConfig = {}): Promise<Diagnosis> => {
+export const diagnoseIncident = async (incidentId: string, config: AgentConfig = {}): Promise<DiagnosisTask> => {
+  const startedAt = new Date();
   const incident = getIncident(incidentId);
 
   if (!incident) {
-    throw new Error(`Incident ${incidentId} was not found`);
+    throw new Error(`未找到故障 ${incidentId}`);
   }
 
   const context = { incidentId, serviceId: incident.serviceId };
@@ -25,6 +26,55 @@ export const diagnoseIncident = async (incidentId: string, config: AgentConfig =
     { incidentId, errorRate: latestMetric?.errorRate ?? 0 },
     context
   );
+  const steps: AgentStep[] = [
+    {
+      id: "step-incident-summary",
+      title: "读取故障上下文",
+      description: "根据故障 ID 获取告警标题、影响服务、严重等级和业务摘要。",
+      tool: incidentSummary.metadata.tool,
+      status: "completed",
+      durationMs: incidentSummary.metadata.durationMs,
+      summary: incident.summary
+    },
+    {
+      id: "step-log-search",
+      title: "检索异常日志",
+      description: "查询受影响服务近期 error/warn 日志，寻找超时、重试、依赖异常等信号。",
+      tool: logResult.metadata.tool,
+      status: "completed",
+      durationMs: logResult.metadata.durationMs,
+      summary: `命中 ${logResult.result.length} 条相关日志`
+    },
+    {
+      id: "step-metric-query",
+      title: "分析指标窗口",
+      description: "读取接口延迟、错误率、CPU、内存等指标，判断异常是否持续扩大。",
+      tool: metricResult.metadata.tool,
+      status: "completed",
+      durationMs: metricResult.metadata.durationMs,
+      summary: latestMetric
+        ? `最新错误率 ${latestMetric.errorRate}%，延迟 ${latestMetric.latencyMs}ms`
+        : "暂无可用指标"
+    },
+    {
+      id: "step-dependency-trace",
+      title: "追踪服务依赖",
+      description: "检查当前服务依赖链，判断故障是否可能由上游或基础设施扩散。",
+      tool: traceResult.metadata.tool,
+      status: "completed",
+      durationMs: traceResult.metadata.durationMs,
+      summary: `发现 ${traceResult.result.dependencies.length} 个依赖服务`
+    },
+    {
+      id: "step-rollback-advisor",
+      title: "评估回滚风险",
+      description: "结合错误率阈值和影响范围，判断是否需要执行灰度回滚。",
+      tool: rollbackResult.metadata.tool,
+      status: "completed",
+      durationMs: rollbackResult.metadata.durationMs,
+      summary: rollbackResult.result.advice
+    }
+  ];
 
   const evidence: EvidenceItem[] = [
     {
@@ -61,7 +111,7 @@ export const diagnoseIncident = async (incidentId: string, config: AgentConfig =
     }
   ];
 
-  return requestDeepSeekDiagnosis(
+  const diagnosis = await requestDeepSeekDiagnosis(
     {
       apiKey: config.deepseekApiKey,
       baseUrl: config.deepseekBaseUrl,
@@ -70,4 +120,17 @@ export const diagnoseIncident = async (incidentId: string, config: AgentConfig =
     incident,
     evidence
   );
+  const completedAt = new Date();
+  const toolDurationMs = steps.reduce((total, step) => total + step.durationMs, 0);
+
+  return {
+    id: `task-${incidentId}`,
+    incidentId,
+    status: "completed",
+    startedAt: startedAt.toISOString(),
+    completedAt: completedAt.toISOString(),
+    totalDurationMs: Math.max(completedAt.getTime() - startedAt.getTime(), toolDurationMs),
+    steps,
+    diagnosis
+  };
 };

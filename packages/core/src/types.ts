@@ -65,3 +65,26 @@ export type Diagnosis = {
   rollbackAdvice: string;
   evidence: EvidenceItem[];
 };
+
+export type AgentStepStatus = "completed" | "failed";
+
+export type AgentStep = {
+  id: string;
+  title: string;
+  description: string;
+  tool: string;
+  status: AgentStepStatus;
+  durationMs: number;
+  summary: string;
+};
+
+export type DiagnosisTask = {
+  id: string;
+  incidentId: string;
+  status: "completed";
+  startedAt: string;
+  completedAt: string;
+  totalDurationMs: number;
+  steps: AgentStep[];
+  diagnosis: Diagnosis;
+};

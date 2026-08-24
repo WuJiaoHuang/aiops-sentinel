@@ -23,6 +23,15 @@ app.get("/api/incidents", (_request, response) => {
   response.json(listIncidents());
 });
 
+app.get("/api/console", (_request, response) => {
+  response.json({
+    services,
+    incidents: listIncidents(),
+    logs,
+    metrics
+  });
+});
+
 app.get("/api/logs", (request, response) => {
   const serviceId = String(request.query.serviceId ?? "");
   response.json(serviceId ? logs.filter((log) => log.serviceId === serviceId) : logs);
