@@ -1,0 +1,24 @@
+{
+  "name": "aiops-sentinel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @aiops-sentinel/web",
+    "dev:api": "npm run dev --workspace @aiops-sentinel/api",
+    "build": "npm run build --workspaces",
+    "check": "npm run typecheck --workspaces",
+    "cli": "npm run start --workspace @aiops-sentinel/cli",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.40.0",
+    "@typescript-eslint/parser": "^8.40.0",
+    "eslint": "^9.33.0",
+    "typescript": "^5.9.2"
+  }
+}

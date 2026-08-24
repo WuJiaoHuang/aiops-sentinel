@@ -1,0 +1,22 @@
+{
+  "name": "@aiops-sentinel/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "sentinel": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aiops-sentinel/core": "0.1.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.3",
+    "typescript": "^5.9.2"
+  }
+}
