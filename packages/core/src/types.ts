@@ -35,6 +35,15 @@ export type Incident = {
   summary: string;
 };
 
+export type UserRole = "admin" | "viewer";
+
+export type CurrentUser = {
+  id: string;
+  name: string;
+  role: UserRole;
+  team: string;
+};
+
 export type ToolContext = {
   incidentId?: string;
   serviceId?: string;

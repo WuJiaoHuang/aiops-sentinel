@@ -3,15 +3,16 @@
 ## Runtime Flow
 
 1. 用户打开 React 故障控制台并选择一条故障。
-2. 前端优先请求 Node.js API 获取服务、告警、日志、指标和历史诊断任务。
-3. 如果 API 不可用，前端自动切换到本地 mock 数据，保证演示稳定。
-4. 用户触发诊断后，API 先创建 running 状态的异步诊断任务。
-5. 前端轮询 `GET /api/diagnosis-tasks/:taskId` 获取任务进度。
-6. 后端任务队列调用 Agent，Agent 依次调用 MCP 风格工具，收集日志、指标、依赖和回滚建议。
-7. DeepSeek adapter 在存在 API Key 时生成真实诊断结论。
-8. DeepSeek 返回内容会经过 JSON 提取和字段归一化，避免 Markdown 包裹或字段缺失导致页面异常。
-9. 如果 DeepSeek 不可用，系统返回确定性的 mock 诊断结果。
-10. API 将 completed 诊断任务写入 SQLite，前端展示诊断结论、步骤流和历史记录。
+2. 用户通过演示账号登录，后端签发内存 token。
+3. 前端携带 token 请求 Node.js API，获取服务、告警、日志、指标和历史诊断任务。
+4. 如果 API 不可用，前端自动切换到本地 mock 数据，保证演示稳定。
+5. 用户触发诊断后，API 先创建 running 状态的异步诊断任务。
+6. 前端轮询 `GET /api/diagnosis-tasks/:taskId` 获取任务进度。
+7. 后端任务队列调用 Agent，Agent 依次调用 MCP 风格工具，收集日志、指标、依赖和回滚建议。
+8. DeepSeek adapter 在存在 API Key 时生成真实诊断结论。
+9. DeepSeek 返回内容会经过 JSON 提取和字段归一化，避免 Markdown 包裹或字段缺失导致页面异常。
+10. 如果 DeepSeek 不可用，系统返回确定性的 mock 诊断结果。
+11. API 将 completed 诊断任务写入 SQLite，前端展示诊断结论、步骤流和历史记录。
 
 ## MCP 风格工具契约
 
@@ -67,6 +68,17 @@ API 启动时会自动创建 `data/sentinel.sqlite`，并写入服务、告警�
 - `GET /api/diagnosis-tasks/:taskId`：查询任务状态，前端用它做轮询。
 
 这种设计更接近真实 Agent 工作流：前端不会被模型调用阻塞，后端可以把耗时诊断过程抽象为任务。
+
+## 登录与接口保护
+
+当前版本实现了演示级登录闭环：
+
+- `POST /api/auth/login`：校验演示账号并签发 token。
+- `GET /api/auth/me`：校验当前登录态。
+- `POST /api/auth/logout`：清理服务端会话。
+- 控制台、日志、指标、诊断任务等业务接口都需要携带 Bearer token。
+
+这个设计适合作品集演示登录态、受保护接口和前后端鉴权流程；后续可以替换为数据库用户表、密码哈希和 JWT。
 
 ## DeepSeek 集成
 

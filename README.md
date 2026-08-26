@@ -15,6 +15,7 @@
 ## 当前已实现功能
 
 - 运维控制台页面：
+  - 登录页和退出登录
   - 展示故障告警
   - 支持故障队列切换
   - 展示服务信息
@@ -25,6 +26,9 @@
   - 支持后端 API 不可用时自动切换到本地 mock 数据
 - Node.js API 服务：
   - `GET /health`
+  - `POST /api/auth/login`
+  - `GET /api/auth/me`
+  - `POST /api/auth/logout`
   - `GET /api/ai/status`
   - `POST /api/ai/test`
   - `GET /api/services`
@@ -107,6 +111,24 @@ http://localhost:5173
 ```text
 http://localhost:8787
 ```
+
+## 演示账号
+
+本地默认演示账号：
+
+```text
+账号：admin
+密码：aiops2026
+```
+
+可以通过 `.env` 修改：
+
+```bash
+DEMO_USERNAME=admin
+DEMO_PASSWORD=aiops2026
+```
+
+登录成功后，前端会把后端返回的 token 保存在浏览器 localStorage 中，并在请求控制台数据、诊断任务、日志和指标时带上 `Authorization: Bearer <token>`。
 
 ## DeepSeek 配置
 

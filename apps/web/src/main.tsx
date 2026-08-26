@@ -1,6 +1,17 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { Activity, AlertTriangle, Bot, CheckCircle2, Network, RotateCcw, Terminal } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  Bot,
+  CheckCircle2,
+  Database,
+  LogOut,
+  Network,
+  RotateCcw,
+  ShieldCheck,
+  Terminal
+} from "lucide-react";
 import {
   diagnoseIncident,
   incidents as fallbackIncidents,
@@ -8,10 +19,11 @@ import {
   metrics as fallbackMetrics,
   services as fallbackServices
 } from "@aiops-sentinel/core";
-import type { DiagnosisTask, Incident, LogEntry, MetricPoint, Service } from "@aiops-sentinel/core";
+import type { CurrentUser, DiagnosisTask, Incident, LogEntry, MetricPoint, Service } from "@aiops-sentinel/core";
 import "./styles.css";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
+const tokenKey = "aiops-sentinel-token";
 
 type ConsoleData = {
   services: Service[];
@@ -27,6 +39,11 @@ type AiStatus = {
   baseUrl: string;
   model: string;
   fallback: string;
+};
+
+type LoginResult = {
+  token: string;
+  user: CurrentUser;
 };
 
 const fallbackConsoleData: ConsoleData = {
@@ -49,8 +66,15 @@ const statusLabel = {
   resolved: "已恢复"
 } as const;
 
-const fetchJson = async <T,>(url: string, options?: RequestInit): Promise<T> => {
-  const response = await fetch(url, options);
+const fetchJson = async <T,>(url: string, options: RequestInit = {}, token?: string): Promise<T> => {
+  const headers = new Headers(options.headers);
+  headers.set("Content-Type", "application/json");
+
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const response = await fetch(url, { ...options, headers });
 
   if (!response.ok) {
     throw new Error(`接口请求失败：${response.status}`);
@@ -62,6 +86,8 @@ const fetchJson = async <T,>(url: string, options?: RequestInit): Promise<T> => 
 const wait = (durationMs: number) => new Promise((resolve) => window.setTimeout(resolve, durationMs));
 
 const App = () => {
+  const [token, setToken] = React.useState(() => window.localStorage.getItem(tokenKey) ?? "");
+  const [currentUser, setCurrentUser] = React.useState<CurrentUser | null>(null);
   const [consoleData, setConsoleData] = React.useState<ConsoleData>(fallbackConsoleData);
   const [selectedIncidentId, setSelectedIncidentId] = React.useState(fallbackIncidents[0].id);
   const [diagnosisTask, setDiagnosisTask] = React.useState<DiagnosisTask | null>(null);
@@ -72,6 +98,9 @@ const App = () => {
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [rollbackPlan, setRollbackPlan] = React.useState<string[]>([]);
   const [copyState, setCopyState] = React.useState("复制 CLI 诊断命令");
+  const [loginForm, setLoginForm] = React.useState({ username: "admin", password: "aiops2026" });
+  const [loginError, setLoginError] = React.useState("");
+  const [loggingIn, setLoggingIn] = React.useState(false);
 
   const selectedIncident =
     consoleData.incidents.find((incident) => incident.id === selectedIncidentId) ?? consoleData.incidents[0];
@@ -83,20 +112,74 @@ const App = () => {
   const dependencyNames = selectedService.dependencies
     .map((dependencyId) => consoleData.services.find((service) => service.id === dependencyId)?.name)
     .filter(Boolean);
+  const latestMetric = metricSeries.at(-1);
+  const criticalCount = consoleData.incidents.filter((incident) => incident.severity === "critical").length;
 
-  const loadConsole = async () => {
+  const applyLogin = (result: LoginResult) => {
+    window.localStorage.setItem(tokenKey, result.token);
+    setToken(result.token);
+    setCurrentUser(result.user);
+  };
+
+  const login = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLoggingIn(true);
+    setLoginError("");
+
+    try {
+      const result = await fetchJson<LoginResult>(`${apiBaseUrl}/api/auth/login`, {
+        method: "POST",
+        body: JSON.stringify(loginForm)
+      });
+      applyLogin(result);
+    } catch {
+      setLoginError("登录失败，请检查账号或密码。");
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  const logout = async () => {
+    if (token) {
+      try {
+        await fetchJson(`${apiBaseUrl}/api/auth/logout`, { method: "POST" }, token);
+      } catch {
+        // 本地退出优先保证用户体验。
+      }
+    }
+
+    window.localStorage.removeItem(tokenKey);
+    setToken("");
+    setCurrentUser(null);
+    setDiagnosisTask(null);
+  };
+
+  const loadConsole = async (activeToken = token) => {
+    if (!activeToken) {
+      setLoadingConsole(false);
+      return;
+    }
+
     setLoadingConsole(true);
     try {
-      const data = await fetchJson<ConsoleData>(`${apiBaseUrl}/api/console`);
+      const [user, data, status] = await Promise.all([
+        fetchJson<CurrentUser>(`${apiBaseUrl}/api/auth/me`, {}, activeToken),
+        fetchJson<ConsoleData>(`${apiBaseUrl}/api/console`, {}, activeToken),
+        fetchJson<AiStatus>(`${apiBaseUrl}/api/ai/status`)
+      ]);
+      setCurrentUser(user);
       setConsoleData(data);
       setApiMode("api");
-      setAiStatus(await fetchJson<AiStatus>(`${apiBaseUrl}/api/ai/status`));
+      setAiStatus(status);
       setErrorMessage(null);
     } catch {
+      window.localStorage.removeItem(tokenKey);
+      setToken("");
+      setCurrentUser(null);
       setConsoleData(fallbackConsoleData);
       setApiMode("local");
       setAiStatus(null);
-      setErrorMessage("后端 API 暂不可用，当前使用本地 mock 数据演示。");
+      setErrorMessage("登录已失效，请重新登录。");
     } finally {
       setLoadingConsole(false);
     }
@@ -107,7 +190,11 @@ const App = () => {
     try {
       let task =
         apiMode === "api"
-          ? await fetchJson<DiagnosisTask>(`${apiBaseUrl}/api/incidents/${incidentId}/diagnosis-tasks`, { method: "POST" })
+          ? await fetchJson<DiagnosisTask>(
+              `${apiBaseUrl}/api/incidents/${incidentId}/diagnosis-tasks`,
+              { method: "POST" },
+              token
+            )
           : await diagnoseIncident(incidentId);
 
       setDiagnosisTask(task);
@@ -143,7 +230,7 @@ const App = () => {
   const pollDiagnosisTask = async (taskId: string): Promise<DiagnosisTask> => {
     for (let count = 0; count < 60; count += 1) {
       await wait(500);
-      const task = await fetchJson<DiagnosisTask>(`${apiBaseUrl}/api/diagnosis-tasks/${taskId}`);
+      const task = await fetchJson<DiagnosisTask>(`${apiBaseUrl}/api/diagnosis-tasks/${taskId}`, {}, token);
       setDiagnosisTask(task);
 
       if (task.status === "completed" || task.status === "failed") {
@@ -184,16 +271,64 @@ const App = () => {
   };
 
   React.useEffect(() => {
-    void loadConsole();
-  }, []);
+    void loadConsole(token);
+  }, [token]);
 
   React.useEffect(() => {
-    if (loadingConsole) {
+    if (loadingConsole || !currentUser) {
       return;
     }
 
     void runDiagnosis(selectedIncidentId);
-  }, [selectedIncidentId, apiMode, loadingConsole]);
+  }, [selectedIncidentId, apiMode, loadingConsole, currentUser]);
+
+  if (!currentUser) {
+    return (
+      <main className="loginPage">
+        <section className="loginHero" aria-label="AIOps Sentinel 登录">
+          <div className="loginBrand">
+            <ShieldCheck size={34} />
+            <span>AIOps Sentinel</span>
+          </div>
+          <h1>智能运维故障诊断平台</h1>
+          <p>面向生产故障的日志分析、指标研判、Agent 诊断和回滚预案工作台。</p>
+          <div className="loginMetrics">
+            <span>5 个 MCP 工具</span>
+            <span>DeepSeek 实时诊断</span>
+            <span>SQLite 任务留痕</span>
+          </div>
+        </section>
+
+        <section className="loginPanel" aria-label="登录表单">
+          <form onSubmit={login}>
+            <p className="eyebrow">演示账号</p>
+            <h2>登录控制台</h2>
+            <label htmlFor="username">账号</label>
+            <input
+              id="username"
+              autoComplete="username"
+              value={loginForm.username}
+              onChange={(event) => setLoginForm((current) => ({ ...current, username: event.target.value }))}
+            />
+            <label htmlFor="password">密码</label>
+            <input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              value={loginForm.password}
+              onChange={(event) => setLoginForm((current) => ({ ...current, password: event.target.value }))}
+            />
+            {loginError && <p className="formError" role="alert">{loginError}</p>}
+            {errorMessage && <p className="formHint">{errorMessage}</p>}
+            <button className="primary" disabled={loggingIn}>
+              <ShieldCheck size={18} />
+              {loggingIn ? "登录中" : "进入控制台"}
+            </button>
+          </form>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="shell">
@@ -202,7 +337,7 @@ const App = () => {
           <Activity size={26} />
           <span>AIOps Sentinel</span>
         </div>
-        <nav>
+        <nav aria-label="主导航">
           <button className="active" title="故障控制台">
             <AlertTriangle size={18} />
             故障
@@ -221,6 +356,11 @@ const App = () => {
           </button>
         </nav>
         <div className="runtime">
+          <span>登录用户</span>
+          <strong>{currentUser.name}</strong>
+          <small>{currentUser.team} · {currentUser.role}</small>
+        </div>
+        <div className="runtime">
           <span>数据来源</span>
           <strong>{apiMode === "api" ? "后端 API" : "本地 mock"}</strong>
         </div>
@@ -228,6 +368,10 @@ const App = () => {
           <span>AI 模式</span>
           <strong>{aiStatus?.configured ? `${aiStatus.provider} · ${aiStatus.model}` : "Mock 兜底"}</strong>
         </div>
+        <button className="logoutButton" onClick={() => void logout()}>
+          <LogOut size={17} />
+          退出登录
+        </button>
       </aside>
 
       <section className="content">
@@ -243,6 +387,25 @@ const App = () => {
         </header>
 
         {errorMessage && <div className="notice">{errorMessage}</div>}
+
+        <section className="summaryStrip" aria-label="运行概览">
+          <div>
+            <span>活跃故障</span>
+            <strong>{consoleData.incidents.length}</strong>
+          </div>
+          <div>
+            <span>严重告警</span>
+            <strong>{criticalCount}</strong>
+          </div>
+          <div>
+            <span>最新错误率</span>
+            <strong>{latestMetric ? `${latestMetric.errorRate}%` : "--"}</strong>
+          </div>
+          <div>
+            <span>历史诊断</span>
+            <strong>{diagnosisHistory.length}</strong>
+          </div>
+        </section>
 
         <section className="layout">
           <aside className="incidentList">
@@ -317,7 +480,7 @@ const App = () => {
               </div>
             </article>
 
-            <article className="panel wide">
+            <article className="panel wide diagnosisPanel">
               <div className="panelHead">
                 <h2>Agent 诊断结论</h2>
                 <span className="muted">
@@ -432,8 +595,8 @@ const App = () => {
                       <strong>{new Date(task.completedAt).toLocaleString("zh-CN")}</strong>
                       <span>
                         {task.status === "completed" ? "已完成" : task.status === "failed" ? "失败" : "执行中"} ·{" "}
-                        {task.steps.length} 个步骤 ·{" "}
-                        {task.totalDurationMs}ms · 置信度 {Math.round((task.diagnosis?.confidence ?? 0) * 100)}%
+                        {task.steps.length} 个步骤 · {task.totalDurationMs}ms · 置信度{" "}
+                        {Math.round((task.diagnosis?.confidence ?? 0) * 100)}%
                       </span>
                     </button>
                   ))
