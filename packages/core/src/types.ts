@@ -82,10 +82,11 @@ export type AgentStep = {
 export type DiagnosisTask = {
   id: string;
   incidentId: string;
-  status: "completed";
+  status: "pending" | "running" | "completed" | "failed";
   startedAt: string;
   completedAt: string;
   totalDurationMs: number;
   steps: AgentStep[];
-  diagnosis: Diagnosis;
+  diagnosis: Diagnosis | null;
+  errorMessage?: string;
 };

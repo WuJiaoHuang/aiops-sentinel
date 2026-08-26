@@ -33,13 +33,16 @@
   - `GET /api/logs`
   - `GET /api/metrics/:serviceId`
   - `GET /api/diagnosis-tasks`
+  - `GET /api/diagnosis-tasks/:taskId`
   - `POST /api/tools/:toolName`
   - `POST /api/incidents/:incidentId/diagnose`
+  - `POST /api/incidents/:incidentId/diagnosis-tasks`
 - SQLite 持久化：
   - API 启动时自动创建 `data/sentinel.sqlite`
   - 自动写入服务、告警、日志、指标等种子数据
   - 每次 Agent 诊断都会保存为一条诊断任务
   - 前端可以查看当前故障的历史诊断记录
+  - 异步任务完成后会写入 SQLite，刷新页面后仍可查看
 - MCP 风格工具层：
   - `log_search`：查询服务日志
   - `metric_query`：查询服务指标
@@ -48,6 +51,7 @@
   - `rollback_advisor`：判断是否需要回滚
 - AI Agent 诊断流程：
   - 接收告警 ID
+  - 创建异步诊断任务，前端轮询任务状态
   - 自动调用日志、指标、依赖、回滚建议等工具
   - 汇总证据链
   - 返回每一步诊断动作、工具名称、耗时和执行摘要

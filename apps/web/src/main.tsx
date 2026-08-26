@@ -59,6 +59,8 @@ const fetchJson = async <T,>(url: string, options?: RequestInit): Promise<T> => 
   return response.json() as Promise<T>;
 };
 
+const wait = (durationMs: number) => new Promise((resolve) => window.setTimeout(resolve, durationMs));
+
 const App = () => {
   const [consoleData, setConsoleData] = React.useState<ConsoleData>(fallbackConsoleData);
   const [selectedIncidentId, setSelectedIncidentId] = React.useState(fallbackIncidents[0].id);
@@ -103,9 +105,9 @@ const App = () => {
   const runDiagnosis = async (incidentId = selectedIncidentId) => {
     setLoadingDiagnosis(true);
     try {
-      const task =
+      let task =
         apiMode === "api"
-          ? await fetchJson<DiagnosisTask>(`${apiBaseUrl}/api/incidents/${incidentId}/diagnose`, { method: "POST" })
+          ? await fetchJson<DiagnosisTask>(`${apiBaseUrl}/api/incidents/${incidentId}/diagnosis-tasks`, { method: "POST" })
           : await diagnoseIncident(incidentId);
 
       setDiagnosisTask(task);
@@ -113,6 +115,16 @@ const App = () => {
         ...current,
         diagnosisTasks: [task, ...current.diagnosisTasks.filter((item) => item.id !== task.id)]
       }));
+
+      if (apiMode === "api") {
+        task = await pollDiagnosisTask(task.id);
+        setDiagnosisTask(task);
+        setConsoleData((current) => ({
+          ...current,
+          diagnosisTasks: [task, ...current.diagnosisTasks.filter((item) => item.id !== task.id)]
+        }));
+      }
+
       setErrorMessage(null);
     } catch {
       const task = await diagnoseIncident(incidentId);
@@ -128,6 +140,20 @@ const App = () => {
     }
   };
 
+  const pollDiagnosisTask = async (taskId: string): Promise<DiagnosisTask> => {
+    for (let count = 0; count < 60; count += 1) {
+      await wait(500);
+      const task = await fetchJson<DiagnosisTask>(`${apiBaseUrl}/api/diagnosis-tasks/${taskId}`);
+      setDiagnosisTask(task);
+
+      if (task.status === "completed" || task.status === "failed") {
+        return task;
+      }
+    }
+
+    throw new Error("诊断任务等待超时");
+  };
+
   const generateRollbackPlan = () => {
     if (!diagnosisTask) {
       setRollbackPlan(["请先完成一次 Agent 诊断，再生成回滚预案。"]);
@@ -138,7 +164,7 @@ const App = () => {
       `确认影响服务：${selectedService.name}，当前故障等级为${severityLabel[selectedIncident.severity]}。`,
       "通知业务、研发、测试和值班负责人，冻结相关服务的新发布。",
       "保留当前日志、指标和 Agent 诊断证据，避免回滚后丢失现场。",
-      diagnosisTask.diagnosis.rollbackAdvice,
+      diagnosisTask.diagnosis?.rollbackAdvice ?? "当前诊断尚未完成，暂不生成回滚判断。",
       "按灰度批次回滚最近一次发布，并持续观察错误率、延迟和核心链路成功率。",
       "回滚后补充复盘记录，沉淀监控阈值、降级策略和自动化检查项。"
     ]);
@@ -162,8 +188,12 @@ const App = () => {
   }, []);
 
   React.useEffect(() => {
+    if (loadingConsole) {
+      return;
+    }
+
     void runDiagnosis(selectedIncidentId);
-  }, [selectedIncidentId, apiMode]);
+  }, [selectedIncidentId, apiMode, loadingConsole]);
 
   return (
     <main className="shell">
@@ -291,17 +321,25 @@ const App = () => {
               <div className="panelHead">
                 <h2>Agent 诊断结论</h2>
                 <span className="muted">
-                  {diagnosisTask?.diagnosis.modelSource === "deepseek" ? "真实 DeepSeek" : "Mock 兜底"}
+                  {!diagnosisTask?.diagnosis
+                    ? "任务执行中"
+                    : diagnosisTask.diagnosis.modelSource === "deepseek"
+                      ? "真实 DeepSeek"
+                      : "Mock 兜底"}
                 </span>
               </div>
               {diagnosisTask ? (
                 <div className="diagnosis">
-                  <h3>{diagnosisTask.diagnosis.rootCause}</h3>
-                  <p>{diagnosisTask.diagnosis.impact}</p>
-                  <p>{diagnosisTask.diagnosis.recommendation}</p>
+                  <h3>
+                    {diagnosisTask.status === "failed"
+                      ? (diagnosisTask.errorMessage ?? "诊断任务执行失败")
+                      : (diagnosisTask.diagnosis?.rootCause ?? "Agent 正在分析日志、指标和依赖证据...")}
+                  </h3>
+                  <p>{diagnosisTask.diagnosis?.impact ?? "诊断任务已创建，系统正在等待模型返回结论。"}</p>
+                  <p>{diagnosisTask.diagnosis?.recommendation ?? "请稍候，完成后会自动展示处置建议。"}</p>
                   <div className="confidence">
                     <span>置信度</span>
-                    <strong>{Math.round(diagnosisTask.diagnosis.confidence * 100)}%</strong>
+                    <strong>{Math.round((diagnosisTask.diagnosis?.confidence ?? 0) * 100)}%</strong>
                   </div>
                 </div>
               ) : (
@@ -336,7 +374,7 @@ const App = () => {
                 <span className="muted">MCP 工具调用</span>
               </div>
               <div className="evidence">
-                {diagnosisTask?.diagnosis.evidence.map((item) => (
+                {diagnosisTask?.diagnosis?.evidence.map((item) => (
                   <div key={`${item.source}-${item.title}`}>
                     <strong>{item.title}</strong>
                     <span>{item.detail}</span>
@@ -393,8 +431,9 @@ const App = () => {
                     <button key={task.id} onClick={() => setDiagnosisTask(task)}>
                       <strong>{new Date(task.completedAt).toLocaleString("zh-CN")}</strong>
                       <span>
-                        {task.steps.length} 个步骤 · {task.totalDurationMs}ms · 置信度{" "}
-                        {Math.round(task.diagnosis.confidence * 100)}%
+                        {task.status === "completed" ? "已完成" : task.status === "failed" ? "失败" : "执行中"} ·{" "}
+                        {task.steps.length} 个步骤 ·{" "}
+                        {task.totalDurationMs}ms · 置信度 {Math.round((task.diagnosis?.confidence ?? 0) * 100)}%
                       </span>
                     </button>
                   ))

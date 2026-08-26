@@ -269,5 +269,9 @@ export const repository = {
         evidence: []
       })
     }));
+  },
+
+  diagnosisTask: (taskId: string): DiagnosisTask | undefined => {
+    return repository.diagnosisTasks().find((task) => task.id === taskId);
   }
 };

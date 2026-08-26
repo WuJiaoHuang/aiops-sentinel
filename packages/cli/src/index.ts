@@ -28,11 +28,11 @@ const main = async () => {
         throw new Error("Usage: sentinel diagnose <incidentId>");
       }
       print(
-        (await diagnoseIncident(argument, {
+        ((await diagnoseIncident(argument, {
           deepseekApiKey: process.env.DEEPSEEK_API_KEY,
           deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL,
           deepseekModel: process.env.DEEPSEEK_MODEL
-        })).diagnosis
+        })).diagnosis ?? { message: "诊断任务尚未完成" })
       );
       break;
     case "logs":
@@ -52,6 +52,9 @@ const main = async () => {
           deepseekModel: process.env.DEEPSEEK_MODEL
         });
         const diagnosis = task.diagnosis;
+        if (!diagnosis) {
+          throw new Error("诊断任务尚未完成，无法生成报告");
+        }
         console.log(`# 故障报告：${argument}`);
         console.log(`根因判断：${diagnosis.rootCause}`);
         console.log(`影响范围：${diagnosis.impact}`);
