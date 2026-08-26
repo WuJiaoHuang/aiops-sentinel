@@ -16,6 +16,7 @@
 
 - 运维控制台页面：
   - 登录页和退出登录
+  - 展示当前用户、团队和权限角色
   - 展示故障告警
   - 支持故障队列切换
   - 展示服务信息
@@ -24,6 +25,7 @@
   - 展示 AI Agent 生成的根因分析、影响范围、修复建议和置信度
   - 展示 Agent 步骤流、工具调用名称和耗时
   - 支持后端 API 不可用时自动切换到本地 mock 数据
+  - 展示最近操作审计日志，覆盖登录、退出、查看控制台、创建诊断任务
 - Node.js API 服务：
   - `GET /health`
   - `POST /api/auth/login`
@@ -34,6 +36,7 @@
   - `GET /api/services`
   - `GET /api/incidents`
   - `GET /api/console`
+  - `GET /api/audit-events`
   - `GET /api/logs`
   - `GET /api/metrics/:serviceId`
   - `GET /api/diagnosis-tasks`
@@ -45,6 +48,7 @@
   - API 启动时自动创建 `data/sentinel.sqlite`
   - 自动写入服务、告警、日志、指标等种子数据
   - 每次 Agent 诊断都会保存为一条诊断任务
+  - 登录、退出、查看控制台、创建诊断任务会写入操作审计日志
   - 前端可以查看当前故障的历史诊断记录
   - 异步任务完成后会写入 SQLite，刷新页面后仍可查看
 - MCP 风格工具层：
@@ -130,6 +134,8 @@ DEMO_PASSWORD=aiops2026
 
 登录成功后，前端会把后端返回的 token 保存在浏览器 localStorage 中，并在请求控制台数据、诊断任务、日志和指标时带上 `Authorization: Bearer <token>`。
 
+当前演示账号内置为“管理员”角色，页面会展示用户姓名、团队、权限角色，并通过操作审计记录关键行为。这个设计是为了体现后台系统常见的“登录鉴权 + 权限提示 + 操作留痕”能力。
+
 ## DeepSeek 配置
 
 项目支持真实 DeepSeek API，也支持没有 Key 时自动 mock。
@@ -166,6 +172,8 @@ data/sentinel.sqlite
 
 这个文件属于本地运行数据，已经加入 `.gitignore`，不会提交到 GitHub。
 
+审计日志保存在 `audit_events` 表中，前端“操作审计”面板默认展示最近 6 条，接口 `GET /api/audit-events` 默认返回最近 30 条。
+
 ## CLI 使用
 
 ```bash
@@ -190,7 +198,6 @@ docs            架构说明和简历材料
 
 ## 下一阶段计划
 
-- 前端改为真正调用后端 API，而不是直接读取本地 core 数据
 - 增加更多服务、日志、指标和故障类型
 - 增加测试用例和部署说明
-- 增加真实 DeepSeek API 联调示例
+- 增加更细粒度的角色权限，例如只读成员、值班工程师、管理员

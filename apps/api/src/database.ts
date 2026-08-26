@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { incidents, logs, metrics, services } from "@aiops-sentinel/core";
-import type { DiagnosisTask, Incident, LogEntry, MetricPoint, Service } from "@aiops-sentinel/core";
+import type { AuditEvent, DiagnosisTask, Incident, LogEntry, MetricPoint, Service } from "@aiops-sentinel/core";
 
 const apiDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(apiDir, "../../..");
@@ -74,6 +74,16 @@ export const initializeDatabase = () => {
       total_duration_ms INTEGER NOT NULL,
       steps TEXT NOT NULL,
       diagnosis TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_events (
+      id TEXT PRIMARY KEY,
+      action TEXT NOT NULL,
+      actor_id TEXT NOT NULL,
+      actor_name TEXT NOT NULL,
+      target TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      created_at TEXT NOT NULL
     );
   `);
 
@@ -273,5 +283,35 @@ export const repository = {
 
   diagnosisTask: (taskId: string): DiagnosisTask | undefined => {
     return repository.diagnosisTasks().find((task) => task.id === taskId);
+  },
+
+  saveAuditEvent: (event: AuditEvent) => {
+    db.prepare(
+      `INSERT INTO audit_events
+       (id, action, actor_id, actor_name, target, detail, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(event.id, event.action, event.actorId, event.actorName, event.target, event.detail, event.createdAt);
+  },
+
+  auditEvents: (): AuditEvent[] => {
+    const rows = db.prepare("SELECT * FROM audit_events ORDER BY created_at DESC LIMIT 30").all() as Array<{
+      id: string;
+      action: AuditEvent["action"];
+      actor_id: string;
+      actor_name: string;
+      target: string;
+      detail: string;
+      created_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      action: row.action,
+      actorId: row.actor_id,
+      actorName: row.actor_name,
+      target: row.target,
+      detail: row.detail,
+      createdAt: row.created_at
+    }));
   }
 };

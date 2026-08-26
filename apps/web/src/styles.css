@@ -289,7 +289,7 @@ h3 {
 
 .summaryStrip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -500,7 +500,8 @@ dd {
 .evidence,
 .logs,
 .steps,
-.history {
+.history,
+.auditList {
   display: grid;
   gap: 10px;
 }
@@ -543,6 +544,38 @@ dd {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 10px;
+}
+
+.auditItem {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.auditItem svg {
+  color: var(--brand);
+  margin-top: 2px;
+}
+
+.auditItem strong,
+.auditItem span,
+.auditItem small {
+  display: block;
+}
+
+.auditItem span {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 3px;
+}
+
+.auditItem small {
+  color: var(--muted);
+  margin-top: 4px;
 }
 
 .step svg {

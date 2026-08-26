@@ -10,6 +10,7 @@ import {
   Network,
   RotateCcw,
   ShieldCheck,
+  UserRoundCheck,
   Terminal
 } from "lucide-react";
 import {
@@ -19,7 +20,16 @@ import {
   metrics as fallbackMetrics,
   services as fallbackServices
 } from "@aiops-sentinel/core";
-import type { CurrentUser, DiagnosisTask, Incident, LogEntry, MetricPoint, Service } from "@aiops-sentinel/core";
+import type {
+  AuditAction,
+  AuditEvent,
+  CurrentUser,
+  DiagnosisTask,
+  Incident,
+  LogEntry,
+  MetricPoint,
+  Service
+} from "@aiops-sentinel/core";
 import "./styles.css";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
@@ -31,6 +41,11 @@ type ConsoleData = {
   logs: LogEntry[];
   metrics: Record<string, MetricPoint[]>;
   diagnosisTasks: DiagnosisTask[];
+  auditEvents: AuditEvent[];
+};
+
+type ConsoleApiData = Omit<ConsoleData, "auditEvents"> & {
+  auditEvents?: AuditEvent[];
 };
 
 type AiStatus = {
@@ -51,8 +66,14 @@ const fallbackConsoleData: ConsoleData = {
   incidents: fallbackIncidents,
   logs: fallbackLogs,
   metrics: fallbackMetrics,
-  diagnosisTasks: []
+  diagnosisTasks: [],
+  auditEvents: []
 };
+
+const normalizeConsoleData = (data: ConsoleApiData): ConsoleData => ({
+  ...data,
+  auditEvents: data.auditEvents ?? []
+});
 
 const severityLabel = {
   critical: "严重",
@@ -65,6 +86,13 @@ const statusLabel = {
   investigating: "诊断中",
   resolved: "已恢复"
 } as const;
+
+const auditActionLabel: Record<AuditAction, string> = {
+  login: "登录",
+  logout: "退出",
+  create_diagnosis_task: "创建诊断",
+  view_console: "查看控制台"
+};
 
 const fetchJson = async <T,>(url: string, options: RequestInit = {}, token?: string): Promise<T> => {
   const headers = new Headers(options.headers);
@@ -109,6 +137,7 @@ const App = () => {
   const metricSeries = consoleData.metrics[selectedService.id] ?? [];
   const serviceLogs = consoleData.logs.filter((log) => log.serviceId === selectedService.id);
   const diagnosisHistory = consoleData.diagnosisTasks.filter((task) => task.incidentId === selectedIncident.id);
+  const recentAuditEvents = consoleData.auditEvents.slice(0, 6);
   const dependencyNames = selectedService.dependencies
     .map((dependencyId) => consoleData.services.find((service) => service.id === dependencyId)?.name)
     .filter(Boolean);
@@ -164,11 +193,11 @@ const App = () => {
     try {
       const [user, data, status] = await Promise.all([
         fetchJson<CurrentUser>(`${apiBaseUrl}/api/auth/me`, {}, activeToken),
-        fetchJson<ConsoleData>(`${apiBaseUrl}/api/console`, {}, activeToken),
+        fetchJson<ConsoleApiData>(`${apiBaseUrl}/api/console`, {}, activeToken),
         fetchJson<AiStatus>(`${apiBaseUrl}/api/ai/status`)
       ]);
       setCurrentUser(user);
-      setConsoleData(data);
+      setConsoleData(normalizeConsoleData(data));
       setApiMode("api");
       setAiStatus(status);
       setErrorMessage(null);
@@ -206,9 +235,11 @@ const App = () => {
       if (apiMode === "api") {
         task = await pollDiagnosisTask(task.id);
         setDiagnosisTask(task);
+        const auditEvents = await fetchJson<AuditEvent[]>(`${apiBaseUrl}/api/audit-events`, {}, token);
         setConsoleData((current) => ({
           ...current,
-          diagnosisTasks: [task, ...current.diagnosisTasks.filter((item) => item.id !== task.id)]
+          diagnosisTasks: [task, ...current.diagnosisTasks.filter((item) => item.id !== task.id)],
+          auditEvents
         }));
       }
 
@@ -361,6 +392,11 @@ const App = () => {
           <small>{currentUser.team} · {currentUser.role}</small>
         </div>
         <div className="runtime">
+          <span>权限角色</span>
+          <strong>管理员</strong>
+          <small>可查看控制台、创建诊断、导出 CLI 动作</small>
+        </div>
+        <div className="runtime">
           <span>数据来源</span>
           <strong>{apiMode === "api" ? "后端 API" : "本地 mock"}</strong>
         </div>
@@ -404,6 +440,10 @@ const App = () => {
           <div>
             <span>历史诊断</span>
             <strong>{diagnosisHistory.length}</strong>
+          </div>
+          <div>
+            <span>审计日志</span>
+            <strong>{consoleData.auditEvents.length}</strong>
           </div>
         </section>
 
@@ -581,6 +621,31 @@ const App = () => {
                   ))}
                 </ol>
               )}
+            </article>
+
+            <article className="panel">
+              <div className="panelHead">
+                <h2>操作审计</h2>
+                <span className="muted">最近 {recentAuditEvents.length} 条</span>
+              </div>
+              <div className="auditList">
+                {recentAuditEvents.length > 0 ? (
+                  recentAuditEvents.map((event) => (
+                    <div className="auditItem" key={event.id}>
+                      <UserRoundCheck size={17} />
+                      <div>
+                        <strong>{auditActionLabel[event.action]}</strong>
+                        <span>{event.detail}</span>
+                        <small>
+                          {event.actorName} · {new Date(event.createdAt).toLocaleString("zh-CN")}
+                        </small>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="muted">暂无审计记录，登录和诊断操作会自动写入。</p>
+                )}
+              </div>
             </article>
 
             <article className="panel wide">

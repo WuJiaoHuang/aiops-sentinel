@@ -44,6 +44,18 @@ export type CurrentUser = {
   team: string;
 };
 
+export type AuditAction = "login" | "logout" | "create_diagnosis_task" | "view_console";
+
+export type AuditEvent = {
+  id: string;
+  action: AuditAction;
+  actorId: string;
+  actorName: string;
+  target: string;
+  detail: string;
+  createdAt: string;
+};
+
 export type ToolContext = {
   incidentId?: string;
   serviceId?: string;

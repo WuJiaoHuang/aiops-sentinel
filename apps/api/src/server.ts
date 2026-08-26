@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
 import express from "express";
 import { diagnoseIncident, tools } from "@aiops-sentinel/core";
-import type { CurrentUser, DiagnosisTask } from "@aiops-sentinel/core";
+import type { AuditAction, CurrentUser, DiagnosisTask } from "@aiops-sentinel/core";
 import { initializeDatabase, repository } from "./database";
 import { loadRootEnv } from "./env";
 
@@ -45,6 +45,18 @@ const requireAuth = (request: Request, response: Response, next: NextFunction) =
   next();
 };
 
+const writeAuditEvent = (action: AuditAction, actor: CurrentUser, target: string, detail: string) => {
+  repository.saveAuditEvent({
+    id: crypto.randomUUID(),
+    action,
+    actorId: actor.id,
+    actorName: actor.name,
+    target,
+    detail,
+    createdAt: new Date().toISOString()
+  });
+};
+
 app.get("/health", (_request, response) => {
   response.json({ status: "ok", service: "aiops-sentinel-api" });
 });
@@ -59,6 +71,7 @@ app.post("/api/auth/login", (request, response) => {
 
   const token = crypto.randomUUID();
   sessions.set(token, demoUser);
+  writeAuditEvent("login", demoUser, "auth", "登录智能运维控制台");
 
   response.json({ token, user: demoUser });
 });
@@ -68,6 +81,7 @@ app.get("/api/auth/me", requireAuth, (_request, response) => {
 });
 
 app.post("/api/auth/logout", requireAuth, (request, response) => {
+  writeAuditEvent("logout", response.locals.user as CurrentUser, "auth", "退出智能运维控制台");
   sessions.delete(getBearerToken(request));
   response.json({ ok: true });
 });
@@ -116,13 +130,19 @@ app.get("/api/incidents", requireAuth, (_request, response) => {
 });
 
 app.get("/api/console", requireAuth, (_request, response) => {
+  writeAuditEvent("view_console", response.locals.user as CurrentUser, "console", "查看生产故障控制台");
   response.json({
     services: repository.services(),
     incidents: repository.incidents(),
     logs: repository.logs(),
     metrics: repository.metrics(),
-    diagnosisTasks: repository.diagnosisTasks()
+    diagnosisTasks: repository.diagnosisTasks(),
+    auditEvents: repository.auditEvents()
   });
+});
+
+app.get("/api/audit-events", requireAuth, (_request, response) => {
+  response.json(repository.auditEvents());
 });
 
 app.get("/api/logs", requireAuth, (request, response) => {
@@ -194,6 +214,12 @@ app.post("/api/incidents/:incidentId/diagnosis-tasks", requireAuth, (request, re
   };
 
   runningTasks.set(task.id, task);
+  writeAuditEvent(
+    "create_diagnosis_task",
+    response.locals.user as CurrentUser,
+    request.params.incidentId,
+    "创建异步 Agent 故障诊断任务"
+  );
   response.status(202).json(task);
 
   windowlessRunDiagnosis(task.id, request.params.incidentId);
