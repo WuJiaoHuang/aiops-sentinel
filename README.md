@@ -4,6 +4,31 @@
 
 AIOps Sentinel 的定位不是传统 CRUD 后端，而是一个基于 **LLM Agent + MCP** 的智能故障诊断平台。它围绕线上故障排查流程，展示动态 Tool Calling、MCP 工具协议、Agent Trace、AI Coding 规则、系统稳定性设计和 Human-in-the-loop 处置闭环。
 
+## 项目实现了什么
+
+这个项目实现的是一个“线上故障进入系统后，由 LLM Agent 自主收集证据并生成诊断结论”的演示平台。
+
+它面向的典型场景是：
+
+```text
+某个核心服务触发告警
+  -> 值班同学需要快速判断影响范围
+  -> 需要查询指标、日志、依赖、服务健康状态和 Runbook
+  -> 需要把证据串成根因假设
+  -> 需要输出处置建议
+  -> 高风险动作必须人工确认
+```
+
+当前 Demo 中的代表性故障是 `order-service` 下单链路错误率和延迟升高。Agent 会围绕这个 Incident 动态选择 MCP Tool，例如服务健康检查、指标查询、日志检索、依赖追踪、知识库检索和回滚建议，最后输出根因判断、证据链、置信度和 ActionProposal。
+
+它可以解决的问题：
+
+- 降低排障信息分散的问题：把日志、指标、依赖、知识库统一封装为 MCP Tool。
+- 降低排障过程不可见的问题：用 Agent Trace 记录每次 LLM 决策、Tool 调用、失败和最终输出。
+- 降低 Agent 失控风险：设置 `maxSteps`、重复调用去重、Tool/LLM 超时、错误隔离和 fallback。
+- 降低自动化误操作风险：回滚、重启、改配置只生成 ActionProposal，不自动执行。
+- 让项目更适合面试展示：既能讲 AI Agent、Tool Calling、MCP，也能讲故障排查、稳定性设计和后端任务闭环。
+
 ## 架构总览
 
 ```text
@@ -191,17 +216,22 @@ timestamp
 summary
 ```
 
-前端控制台的“诊断过程”区域会按顺序展示这些步骤，例如：
+前端控制台的“诊断过程”区域会按顺序展示这些步骤。真实 LLM 可根据不同 Incident 选择不同 Tool；未配置 DeepSeek Key 时，本地 fallback 会给出一条稳定可复现的演示轨迹，例如：
 
 ```text
-Step 1：LLM 判断需要调用 service_health
-Step 2：调用 MCP Tool：get_service_health
-Step 3：发现服务健康状态 critical，P99 latency 810ms，error rate 12.5%
-Step 4：LLM 判断需要调用 metric_query
-Step 5：调用 MCP Tool：query_metrics
-Step 6：LLM 判断需要调用 log_search
-Step 7：发现支付服务重试预算耗尽后仍然超时
-Step 8：生成根因判断和高风险 ActionProposal
+Step 1：读取故障上下文
+Step 2：调用 MCP Tool：incident_summary
+Step 3：检查服务健康状态
+Step 4：调用 MCP Tool：get_service_health
+Step 5：查询指标窗口
+Step 6：调用 MCP Tool：query_metrics
+Step 7：检索异常日志
+Step 8：调用 MCP Tool：query_logs
+Step 9：检索 Runbook 知识
+Step 10：调用 MCP Tool：search_knowledge
+Step 11：生成回滚建议
+Step 12：调用 MCP Tool：rollback_advisor
+Step 13：输出不确定诊断和高风险 ActionProposal
 ```
 
 ## Human-in-the-loop
@@ -235,15 +265,13 @@ type ActionProposal = {
 2. Agent 读取 AgentState，当前没有证据，LLM 选择 service_health。
 3. MCP Client 调用 MCP Server 的 get_service_health。
 4. Tool 返回 P99 latency 810ms、error rate 12.5%，服务状态 critical。
-5. Agent 更新 Evidence 和 Hypothesis，LLM 选择 metric_query。
+5. Agent 更新 Evidence 和 Hypothesis，继续选择 metric_query。
 6. MCP Server 返回指标窗口，确认错误率和延迟持续升高。
-7. LLM 选择 log_search。
+7. Agent 继续选择 log_search。
 8. MCP Server 返回日志：支付服务重试预算耗尽后仍然超时。
-9. LLM 根据 timeout 信号选择 dependency_trace。
-10. Agent 发现 order-service 依赖 payment-service、inventory-service。
-11. LLM 选择 knowledge_search，召回订单链路超时 Runbook。
-12. LLM 选择 rollback_advisor，生成高风险回滚 ActionProposal。
-13. Agent 输出最终诊断：根因大概率与支付链路超时和发布风险相关，并给出证据和人工确认动作。
+9. Agent 选择 knowledge_search，召回订单链路超时 Runbook 和发布风险规则。
+10. Agent 选择 rollback_advisor，生成高风险回滚 ActionProposal。
+11. 在证据仍不足以确定唯一根因时，Agent 输出“不确定”诊断，并给出已有证据和人工确认动作。
 ```
 
 运行：
