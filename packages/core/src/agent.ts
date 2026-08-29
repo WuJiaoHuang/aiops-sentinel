@@ -59,21 +59,34 @@ const summarizeToolData = (toolName: ToolName, result: ToolResult): string => {
       return incident ? `故障 ${incident.title}，等级 ${incident.severity}，状态 ${incident.status}` : "未找到故障上下文";
     }
     case "service_health": {
-      const health = result.data as { status?: string; signals?: string[] } | null;
-      return `服务健康状态 ${health?.status ?? "unknown"}；${health?.signals?.join("；") ?? "暂无信号"}`;
+      const payload = result.data as { health?: { status?: string; components?: Record<string, unknown> }; status?: string; signals?: string[] } | null;
+      const health = payload?.health;
+      const signals = payload?.signals?.join("；") ?? JSON.stringify(health?.components ?? {});
+      return `provider=${result.provider ?? result.source}；服务健康状态 ${health?.status ?? payload?.status ?? "unknown"}；${signals}`;
     }
     case "metric_query": {
-      const points = (result.data ?? []) as MetricPoint[];
-      const latest = points.at(-1);
-      return latest
-        ? `最新 P99 ${latest.latencyMs}ms，错误率 ${latest.errorRate}%，CPU ${latest.cpu}%`
-        : "暂无指标数据";
+      if (Array.isArray(result.data)) {
+        const points = result.data as MetricPoint[];
+        const latest = points.at(-1);
+        return latest
+          ? `provider=${result.provider ?? result.source}；最新 P99 ${latest.latencyMs}ms，错误率 ${latest.errorRate}%，CPU ${latest.cpu}%`
+          : "暂无指标数据";
+      }
+
+      const metricResult = result.data as { provider?: string; series?: Array<{ metricName: string; points: Array<{ value: number }> }> } | null;
+      const series = metricResult?.series ?? [];
+      const latestValues = series
+        .map((item) => `${item.metricName}=${item.points.at(-1)?.value ?? "NA"}`)
+        .join("；");
+      return `provider=${metricResult?.provider ?? result.provider ?? result.source}；${latestValues || "暂无指标数据"}`;
     }
     case "log_search": {
-      const matchedLogs = (result.data ?? []) as LogEntry[];
+      const matchedLogs = Array.isArray(result.data)
+        ? (result.data as LogEntry[])
+        : (((result.data as { entries?: LogEntry[] } | null)?.entries ?? []) as LogEntry[]);
       return matchedLogs.length > 0
-        ? `命中 ${matchedLogs.length} 条日志：${matchedLogs.map((log) => log.message).join("；")}`
-        : "没有命中异常日志";
+        ? `provider=${result.provider ?? result.source}；命中 ${matchedLogs.length} 条日志：${matchedLogs.map((log) => log.message).join("；")}`
+        : `provider=${result.provider ?? result.source}；没有命中异常日志`;
     }
     case "dependency_trace": {
       const trace = result.data as { dependencies?: Array<{ name: string }> } | null;

@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./agent": "./src/agent.ts",
-    "./mcp-client": "./src/mcpClient.ts"
+    "./mcp-client": "./src/mcpClient.ts",
+    "./provider-tools": "./src/providerTools.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

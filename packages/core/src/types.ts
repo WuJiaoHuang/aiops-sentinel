@@ -91,6 +91,7 @@ export type ToolResult<T = unknown> = {
   data: T | null;
   error: string | null;
   source: "mock" | "mcp" | "api";
+  provider?: string;
   latencyMs: number;
   timestamp: string;
 };

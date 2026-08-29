@@ -1,0 +1,28 @@
+targets:
+  cityeats:
+    type: spring-boot
+    baseUrl: http://localhost:8080
+    prometheusJob: cityeats
+    logProvider: file
+    logPath: ../CityEats/logs/cityeats.log
+    metricsProvider: prometheus
+    healthProvider: springboot
+    services:
+      cityeats:
+        framework: spring-boot
+        dependencies:
+          - mysql
+          - redis
+          - rabbitmq
+
+  demo-service:
+    type: mock
+    metricsProvider: mock
+    logProvider: mock
+    healthProvider: mock
+    services:
+      svc-order:
+        framework: spring-boot
+        dependencies:
+          - mysql
+          - redis

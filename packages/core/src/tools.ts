@@ -86,6 +86,8 @@ const fail = <T>(error: string, startedAt: number, source: ToolResult["source"] 
   timestamp: new Date().toISOString()
 });
 
+const serviceOf = (input: Record<string, unknown>) => String(input.service ?? input.serviceId ?? "svc-order");
+
 const withToolResult = async <T>(
   executor: () => T | Promise<T>,
   startedAt: number
@@ -126,14 +128,16 @@ export const toolRegistry = {
     description: "按服务和日志级别检索异常日志，发现超时、重试、连接池耗尽等信号。",
     inputSchema: objectSchema(
       {
-        serviceId: { type: "string", description: "服务 ID，例如 svc-order" },
+        target: { type: "string", description: "目标系统 ID，例如 cityeats 或 demo-service" },
+        service: { type: "string", description: "目标系统内的服务名，例如 cityeats" },
+        serviceId: { type: "string", description: "兼容旧 Demo 的服务 ID，例如 svc-order" },
         level: { type: "string", enum: ["error", "warn", "info"], description: "可选日志级别" }
       },
-      ["serviceId"]
+      []
     ),
     execute: async (input: Record<string, unknown>) => {
       const startedAt = Date.now();
-      const serviceId = String(input.serviceId);
+      const serviceId = serviceOf(input);
       const level = input.level as LogEntry["level"] | undefined;
       return withToolResult<LogEntry[]>(
         () =>
@@ -153,13 +157,17 @@ export const toolRegistry = {
     description: "读取延迟、错误率、CPU、内存等时间序列，判断异常窗口和持续性。",
     inputSchema: objectSchema(
       {
-        serviceId: { type: "string", description: "服务 ID，例如 svc-order" }
+        target: { type: "string", description: "目标系统 ID，例如 cityeats 或 demo-service" },
+        service: { type: "string", description: "目标系统内的服务名，例如 cityeats" },
+        serviceId: { type: "string", description: "兼容旧 Demo 的服务 ID，例如 svc-order" },
+        metric: { type: "string", description: "逻辑指标名，例如 http_error_rate、http_latency、db_pool_pending" },
+        timeRangeMinutes: { type: "number", description: "查询最近多少分钟的数据" }
       },
-      ["serviceId"]
+      []
     ),
     execute: async (input: Record<string, unknown>) => {
       const startedAt = Date.now();
-      return withToolResult<MetricPoint[]>(() => metrics[String(input.serviceId)] ?? [], startedAt);
+      return withToolResult<MetricPoint[]>(() => metrics[serviceOf(input)] ?? [], startedAt);
     }
   },
 
@@ -224,13 +232,15 @@ export const toolRegistry = {
     description: "聚合服务最新错误率、延迟和资源水位，给出健康状态摘要。",
     inputSchema: objectSchema(
       {
-        serviceId: { type: "string", description: "服务 ID，例如 svc-order" }
+        target: { type: "string", description: "目标系统 ID，例如 cityeats 或 demo-service" },
+        service: { type: "string", description: "目标系统内的服务名，例如 cityeats" },
+        serviceId: { type: "string", description: "兼容旧 Demo 的服务 ID，例如 svc-order" }
       },
-      ["serviceId"]
+      []
     ),
     execute: async (input: Record<string, unknown>) => {
       const startedAt = Date.now();
-      const serviceId = String(input.serviceId);
+      const serviceId = serviceOf(input);
       return withToolResult<ServiceHealthResult>(() => {
         const latestMetric = latestMetricOf(serviceId);
 

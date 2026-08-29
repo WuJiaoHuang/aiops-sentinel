@@ -1,13 +1,14 @@
 import { createMcpToolRuntime } from "@aiops-sentinel/core/mcp-client";
-import type { LogEntry } from "@aiops-sentinel/core";
+import type { LogQueryResult } from "@aiops-sentinel/core";
 
 const runtime = await createMcpToolRuntime();
 
 try {
   const availableTools = await runtime.listTools();
-  const logSearchResult = await runtime.callTool<LogEntry[]>(
+  const logSearchResult = await runtime.callTool<LogQueryResult>(
     "log_search",
     {
+      target: "demo-service",
       serviceId: "svc-order",
       level: "error"
     },
@@ -27,9 +28,10 @@ try {
           tool: "query_logs",
           success: logSearchResult.success,
           source: logSearchResult.source,
+          provider: logSearchResult.provider,
           latencyMs: logSearchResult.latencyMs,
-          resultCount: logSearchResult.data?.length ?? 0,
-          firstTraceId: logSearchResult.data?.[0]?.traceId
+          resultCount: logSearchResult.data?.entries.length ?? 0,
+          firstTraceId: logSearchResult.data?.entries[0]?.traceId
         }
       },
       null,
