@@ -2,7 +2,8 @@ import cors from "cors";
 import crypto from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
 import express from "express";
-import { diagnoseIncident, tools } from "@aiops-sentinel/core";
+import { toolCatalog, tools } from "@aiops-sentinel/core";
+import { diagnoseIncident } from "@aiops-sentinel/core/agent";
 import type { AuditAction, CurrentUser, DiagnosisTask } from "@aiops-sentinel/core";
 import { initializeDatabase, repository } from "./database";
 import { loadRootEnv } from "./env";
@@ -92,7 +93,10 @@ app.get("/api/ai/status", (_request, response) => {
     configured: Boolean(process.env.DEEPSEEK_API_KEY),
     baseUrl: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
     model: process.env.DEEPSEEK_MODEL ?? "deepseek-chat",
-    fallback: "未配置或调用失败时自动使用本地 mock 诊断"
+    fallback: "未配置或调用失败时自动使用本地 mock 诊断",
+    agentRuntime: "planner + MCP stdio server + MCP client tool calls + RAG knowledge search",
+    mcpTransport: "stdio",
+    tools: toolCatalog
   });
 });
 
@@ -152,6 +156,10 @@ app.get("/api/logs", requireAuth, (request, response) => {
 
 app.get("/api/metrics/:serviceId", requireAuth, (request, response) => {
   response.json(repository.metrics()[request.params.serviceId] ?? []);
+});
+
+app.get("/api/tools", requireAuth, (_request, response) => {
+  response.json(toolCatalog);
 });
 
 app.get("/api/diagnosis-tasks", requireAuth, (request, response) => {

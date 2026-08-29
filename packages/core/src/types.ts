@@ -61,10 +61,25 @@ export type ToolContext = {
   serviceId?: string;
 };
 
+export type ToolName =
+  | "incident_summary"
+  | "log_search"
+  | "metric_query"
+  | "dependency_trace"
+  | "knowledge_search"
+  | "rollback_advisor";
+
+export type ToolDefinition = {
+  name: ToolName;
+  description: string;
+  inputSchema: Record<string, string>;
+  outputSignal: string;
+};
+
 export type ToolResult<T> = {
   result: T;
   metadata: {
-    tool: string;
+    tool: ToolName;
     durationMs: number;
     mock: boolean;
   };
@@ -94,7 +109,7 @@ export type AgentStep = {
   id: string;
   title: string;
   description: string;
-  tool: string;
+  tool: ToolName | "agent_planner" | "diagnosis_task_queue";
   status: AgentStepStatus;
   durationMs: number;
   summary: string;

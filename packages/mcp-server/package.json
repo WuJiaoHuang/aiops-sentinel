@@ -1,0 +1,24 @@
+{
+  "name": "@aiops-sentinel/mcp-server",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "aiops-sentinel-mcp": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "verify": "tsx src/verify.ts",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aiops-sentinel/core": "0.1.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.3",
+    "typescript": "^5.9.2"
+  }
+}

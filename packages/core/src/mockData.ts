@@ -5,21 +5,21 @@ export const services: Service[] = [
     id: "svc-gateway",
     name: "api-gateway",
     owner: "platform",
-    runtime: "Node.js 22",
+    runtime: "Java 17 / Spring Boot 3",
     dependencies: ["svc-auth", "svc-order"]
   },
   {
     id: "svc-auth",
     name: "auth-service",
     owner: "identity",
-    runtime: "Node.js 20",
+    runtime: "Java 17 / Spring Security",
     dependencies: ["svc-redis"]
   },
   {
     id: "svc-order",
     name: "order-service",
     owner: "commerce",
-    runtime: "Node.js 20",
+    runtime: "Java 17 / Spring Boot 3",
     dependencies: ["svc-mysql", "svc-redis"]
   },
   {

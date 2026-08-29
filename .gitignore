@@ -10,3 +10,6 @@ coverage
 data/*.sqlite
 data/*.sqlite-shm
 data/*.sqlite-wal
+target
+apps/java-api/.m2
+apps/java-api/target

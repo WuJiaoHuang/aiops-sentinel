@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { diagnoseIncident, listIncidents, logs, services } from "@aiops-sentinel/core";
+import { listIncidents, logs, services } from "@aiops-sentinel/core";
+import { diagnoseIncident } from "@aiops-sentinel/core/agent";
 import { loadRootEnv } from "./env";
 
 loadRootEnv();
