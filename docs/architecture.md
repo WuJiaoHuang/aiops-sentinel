@@ -89,7 +89,7 @@ Tool 失败不能抛出未捕获异常，应返回 `success=false` 并写明 `er
 
 ## 动态 Tool Calling Agent
 
-Agent 不再写死 `log_search -> metric_query -> dependency_trace` 这类顺序。它每轮基于当前状态决策：
+Agent 不再写死任何固定三段式诊断顺序。它每轮基于当前状态决策：
 
 ```text
 AgentState

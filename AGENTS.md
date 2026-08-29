@@ -87,7 +87,7 @@ type ToolResult<T> = {
 
 ## 禁止行为
 
-- 禁止写死 `log_search -> metric_query -> dependency_trace` 这类固定诊断顺序。
+- 禁止写死任何固定三段式诊断顺序，工具选择必须来自 AgentState 和 LLM 决策。
 - 禁止绕过 MCP Client 直接调用本地工具作为正式后端/CLI 诊断路径。
 - 禁止自动执行 rollback、restart service、modify configuration。
 - 禁止为了展示技术栈而引入 Kafka、Kubernetes、多 Agent 或复杂权限系统。
