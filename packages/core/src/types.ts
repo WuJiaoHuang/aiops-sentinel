@@ -56,6 +56,13 @@ export type AuditEvent = {
   createdAt: string;
 };
 
+export type JsonSchema = {
+  type: "object";
+  properties: Record<string, Record<string, unknown>>;
+  required?: string[];
+  additionalProperties?: boolean;
+};
+
 export type ToolContext = {
   incidentId?: string;
   serviceId?: string;
@@ -67,22 +74,41 @@ export type ToolName =
   | "metric_query"
   | "dependency_trace"
   | "knowledge_search"
-  | "rollback_advisor";
+  | "rollback_advisor"
+  | "service_health";
 
-export type ToolDefinition = {
-  name: ToolName;
-  description: string;
-  inputSchema: Record<string, string>;
-  outputSignal: string;
+export type McpToolName =
+  | "incident_summary"
+  | "query_logs"
+  | "query_metrics"
+  | "query_dependency"
+  | "search_knowledge"
+  | "rollback_advisor"
+  | "get_service_health";
+
+export type ToolResult<T = unknown> = {
+  success: boolean;
+  data: T | null;
+  error: string | null;
+  source: "mock" | "mcp" | "api";
+  latencyMs: number;
+  timestamp: string;
 };
 
-export type ToolResult<T> = {
-  result: T;
-  metadata: {
-    tool: ToolName;
-    durationMs: number;
-    mock: boolean;
-  };
+export type ToolDefinition<TOutput = unknown> = {
+  name: ToolName;
+  mcpName: McpToolName;
+  description: string;
+  inputSchema: JsonSchema;
+  execute: (input: Record<string, unknown>, context: ToolContext) => Promise<ToolResult<TOutput>> | ToolResult<TOutput>;
+};
+
+export type ToolCallRecord = {
+  toolName: ToolName;
+  mcpName: McpToolName;
+  input: Record<string, unknown>;
+  result?: ToolResult;
+  timestamp: string;
 };
 
 export type EvidenceItem = {
@@ -90,6 +116,14 @@ export type EvidenceItem = {
   title: string;
   detail: string;
   confidence: number;
+};
+
+export type ActionProposal = {
+  action: string;
+  reason: string;
+  riskLevel: "LOW" | "MEDIUM" | "HIGH";
+  evidence: string[];
+  requiresApproval: boolean;
 };
 
 export type Diagnosis = {
@@ -101,18 +135,58 @@ export type Diagnosis = {
   recommendation: string;
   rollbackAdvice: string;
   evidence: EvidenceItem[];
+  actionProposals?: ActionProposal[];
+  uncertain?: boolean;
 };
 
-export type AgentStepStatus = "completed" | "failed";
+export type AgentMessage = {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  timestamp: string;
+};
+
+export type AgentState = {
+  messages: AgentMessage[];
+  incident: Incident;
+  evidence: EvidenceItem[];
+  toolCalls: ToolCallRecord[];
+  currentHypothesis: string;
+  confidence: number;
+  stepCount: number;
+  finalDiagnosis: Diagnosis | null;
+};
+
+export type AgentStepType = "LLM" | "TOOL" | "ERROR" | "FINAL";
+
+export type AgentStepStatus = "completed" | "failed" | "skipped";
 
 export type AgentStep = {
   id: string;
+  stepIndex: number;
+  type: AgentStepType;
   title: string;
   description: string;
-  tool: ToolName | "agent_planner" | "diagnosis_task_queue";
+  toolName?: ToolName | McpToolName | "agent_runtime" | "diagnosis_task_queue";
+  toolInput?: Record<string, unknown>;
+  toolOutput?: ToolResult | Diagnosis | Record<string, unknown>;
   status: AgentStepStatus;
-  durationMs: number;
+  latency: number;
+  timestamp: string;
   summary: string;
+};
+
+export type AgentRun = {
+  runId: string;
+  incidentId: string;
+  model: string;
+  status: "running" | "completed" | "failed";
+  startTime: string;
+  endTime: string;
+  totalLatency: number;
+  totalToolCalls: number;
+  finalDiagnosis: Diagnosis | null;
+  confidence: number;
+  steps: AgentStep[];
 };
 
 export type DiagnosisTask = {
@@ -124,5 +198,6 @@ export type DiagnosisTask = {
   totalDurationMs: number;
   steps: AgentStep[];
   diagnosis: Diagnosis | null;
+  agentRun?: AgentRun;
   errorMessage?: string;
 };

@@ -194,8 +194,9 @@ app.post("/api/tools/:toolName", requireAuth, (request, response) => {
     return;
   }
 
-  const result = tool(request.body.input ?? {}, request.body.context ?? {});
-  response.json(result);
+  void Promise.resolve(tool.execute(request.body.input ?? {}, request.body.context ?? {})).then((result) =>
+    response.json(result)
+  );
 });
 
 app.post("/api/incidents/:incidentId/diagnosis-tasks", requireAuth, (request, response) => {
@@ -210,11 +211,14 @@ app.post("/api/incidents/:incidentId/diagnosis-tasks", requireAuth, (request, re
     steps: [
       {
         id: "step-task-created",
+        stepIndex: 1,
+        type: "TOOL",
         title: "创建诊断任务",
         description: "后端已接收故障诊断请求，正在调度 Agent 工作流。",
-        tool: "diagnosis_task_queue",
+        toolName: "diagnosis_task_queue",
         status: "completed",
-        durationMs: 0,
+        latency: 0,
+        timestamp: startedAt.toISOString(),
         summary: "任务已进入执行队列"
       }
     ],

@@ -1,11 +1,44 @@
-import { requestDeepSeekDiagnosis } from "./deepseek";
-import { getIncident, tools } from "./tools";
-import type { AgentStep, DiagnosisTask, EvidenceItem } from "./types";
+import { buildMockDiagnosis } from "./deepseek";
+import { getIncident, getToolDefinition, toolRegistry } from "./tools";
+import type { AgentRun, AgentStep, DiagnosisTask, EvidenceItem, MetricPoint, ToolName, ToolResult } from "./types";
 
 export type LocalAgentConfig = {
-  deepseekApiKey?: string;
-  deepseekBaseUrl?: string;
-  deepseekModel?: string;
+  maxSteps?: number;
+};
+
+const now = () => new Date().toISOString();
+
+const summarize = (toolName: ToolName, result: ToolResult) => {
+  if (!result.success) {
+    return result.error ?? `${toolName} 调用失败`;
+  }
+
+  if (toolName === "metric_query") {
+    const latest = ((result.data ?? []) as MetricPoint[]).at(-1);
+    return latest ? `最新延迟 ${latest.latencyMs}ms，错误率 ${latest.errorRate}%` : "暂无指标数据";
+  }
+
+  if (Array.isArray(result.data)) {
+    return `返回 ${result.data.length} 条结果`;
+  }
+
+  return JSON.stringify(result.data);
+};
+
+const evidenceFrom = (toolName: ToolName, result: ToolResult): EvidenceItem => ({
+  source: toolName,
+  title: getToolDefinition(toolName).description,
+  detail: summarize(toolName, result),
+  confidence: result.success ? 0.62 : 0.2
+});
+
+const nextLocalTool = (called: Set<ToolName>, severity: string): ToolName | null => {
+  const candidates: ToolName[] =
+    severity === "critical"
+      ? ["incident_summary", "service_health", "metric_query", "log_search", "dependency_trace", "knowledge_search", "rollback_advisor"]
+      : ["incident_summary", "service_health", "knowledge_search", "metric_query", "log_search"];
+
+  return candidates.find((toolName) => !called.has(toolName)) ?? null;
 };
 
 export const diagnoseIncidentLocal = async (
@@ -19,134 +52,74 @@ export const diagnoseIncidentLocal = async (
     throw new Error(`未找到故障 ${incidentId}`);
   }
 
-  const context = { incidentId, serviceId: incident.serviceId };
-  const incidentSummary = tools.incident_summary({ incidentId }, context);
-  const metricResult = tools.metric_query({ serviceId: incident.serviceId }, context);
-  const logResult = tools.log_search({ serviceId: incident.serviceId, level: "error" }, context);
-  const traceResult = tools.dependency_trace({ serviceId: incident.serviceId }, context);
-  const knowledgeResult = tools.knowledge_search({ serviceId: incident.serviceId, query: incident.title }, context);
-  const latestMetric = metricResult.result.at(-1);
-  const rollbackResult = tools.rollback_advisor({ incidentId, errorRate: latestMetric?.errorRate ?? 0 }, context);
-  const steps: AgentStep[] = [
-    {
-      id: "step-local-planner",
-      title: "生成本地诊断计划",
-      description: "前端 fallback 使用本地工具执行离线诊断，后端正式流程使用 MCP Agent。",
-      tool: "agent_planner",
-      status: "completed",
-      durationMs: 4,
-      summary: "本地调用 incident_summary -> metric_query -> log_search -> dependency_trace -> knowledge_search"
-    },
-    {
-      id: "step-incident-summary",
-      title: "读取故障上下文",
-      description: "根据故障 ID 获取告警标题、影响服务、严重等级和业务摘要。",
-      tool: incidentSummary.metadata.tool,
-      status: "completed",
-      durationMs: incidentSummary.metadata.durationMs,
-      summary: incident.summary
-    },
-    {
-      id: "step-metric-query",
-      title: "分析指标窗口",
-      description: "读取接口延迟、错误率、CPU、内存等指标，判断异常是否持续扩大。",
-      tool: metricResult.metadata.tool,
-      status: "completed",
-      durationMs: metricResult.metadata.durationMs,
-      summary: latestMetric ? `最新错误率 ${latestMetric.errorRate}%，延迟 ${latestMetric.latencyMs}ms` : "暂无可用指标"
-    },
-    {
-      id: "step-log-search",
-      title: "检索异常日志",
-      description: "查询受影响服务近期 error 日志，寻找超时、重试、依赖异常等信号。",
-      tool: logResult.metadata.tool,
-      status: "completed",
-      durationMs: logResult.metadata.durationMs,
-      summary: `命中 ${logResult.result.length} 条 error 日志`
-    },
-    {
-      id: "step-dependency-trace",
-      title: "追踪服务依赖",
-      description: "检查当前服务依赖链，判断故障是否可能由上游或基础设施扩散。",
-      tool: traceResult.metadata.tool,
-      status: "completed",
-      durationMs: traceResult.metadata.durationMs,
-      summary: `发现 ${traceResult.result.dependencies.length} 个依赖服务`
-    },
-    {
-      id: "step-knowledge-search",
-      title: "检索处置知识",
-      description: "检索 Runbook 和历史处置知识，提供本地 RAG 证据。",
-      tool: knowledgeResult.metadata.tool,
-      status: "completed",
-      durationMs: knowledgeResult.metadata.durationMs,
-      summary: `召回 ${knowledgeResult.result.length} 条处置知识`
-    },
-    {
-      id: "step-rollback-advisor",
-      title: "评估回滚风险",
-      description: "结合错误率阈值和影响范围，判断是否需要执行灰度回滚。",
-      tool: rollbackResult.metadata.tool,
-      status: "completed",
-      durationMs: rollbackResult.metadata.durationMs,
-      summary: rollbackResult.result.advice
-    }
-  ];
+  const steps: AgentStep[] = [];
+  const evidence: EvidenceItem[] = [];
+  const called = new Set<ToolName>();
+  const maxSteps = config.maxSteps ?? 5;
 
-  const evidence: EvidenceItem[] = [
-    {
-      source: incidentSummary.metadata.tool,
-      title: incident.title,
-      detail: incident.summary,
-      confidence: 0.74
-    },
-    {
-      source: logResult.metadata.tool,
-      title: "日志异常",
-      detail: logResult.result.map((log) => `${log.level}: ${log.message}`).join("；") || "暂无近期日志异常",
-      confidence: 0.78
-    },
-    {
-      source: metricResult.metadata.tool,
-      title: "指标窗口",
-      detail: latestMetric
-        ? `最新延迟 ${latestMetric.latencyMs}ms，错误率 ${latestMetric.errorRate}%，CPU ${latestMetric.cpu}%。`
-        : "暂无可用指标窗口。",
-      confidence: 0.8
-    },
-    {
-      source: traceResult.metadata.tool,
-      title: "依赖链路",
-      detail: `依赖服务：${traceResult.result.dependencies.map((service) => service.name).join("、") || "无"}。`,
-      confidence: 0.65
-    },
-    {
-      source: knowledgeResult.metadata.tool,
-      title: "Runbook 知识",
-      detail:
-        knowledgeResult.result.map((item) => `${item.title}: ${item.content}`).join("；") ||
-        "暂无匹配的处置知识。",
-      confidence: 0.68
-    },
-    {
-      source: rollbackResult.metadata.tool,
-      title: "回滚建议",
-      detail: rollbackResult.result.advice,
-      confidence: rollbackResult.result.shouldRollback ? 0.82 : 0.58
-    }
-  ];
+  for (let index = 0; index < maxSteps; index += 1) {
+    const toolName = nextLocalTool(called, incident.severity);
 
-  const diagnosis = await requestDeepSeekDiagnosis(
-    {
-      apiKey: config.deepseekApiKey,
-      baseUrl: config.deepseekBaseUrl,
-      model: config.deepseekModel
-    },
-    incident,
-    evidence
-  );
+    if (!toolName) {
+      break;
+    }
+
+    const toolInput =
+      toolName === "incident_summary"
+        ? { incidentId }
+        : toolName === "rollback_advisor"
+          ? { incidentId, errorRate: 12 }
+          : { serviceId: incident.serviceId, ...(toolName === "log_search" ? { level: "error" } : {}) };
+    const toolDefinition = getToolDefinition(toolName);
+    const result = await toolRegistry[toolName].execute(toolInput, { incidentId, serviceId: incident.serviceId });
+    called.add(toolName);
+    evidence.push(evidenceFrom(toolName, result));
+    steps.push({
+      id: `local-step-${index + 1}`,
+      stepIndex: index + 1,
+      type: result.success ? "TOOL" : "ERROR",
+      title: `本地 fallback 调用 ${toolName}`,
+      description: toolDefinition.description,
+      toolName,
+      toolInput,
+      toolOutput: result,
+      status: result.success ? "completed" : "failed",
+      latency: result.latencyMs,
+      timestamp: now(),
+      summary: summarize(toolName, result)
+    });
+  }
+
+  const diagnosis = buildMockDiagnosis(incident, evidence, evidence.length < 2);
+  steps.push({
+    id: `local-step-final`,
+    stepIndex: steps.length + 1,
+    type: "FINAL",
+    title: diagnosis.uncertain ? "输出不确定诊断" : "生成本地诊断",
+    description: "浏览器离线 fallback 基于已有证据生成演示结果；正式诊断请使用后端 MCP Agent。",
+    toolName: "agent_runtime",
+    toolOutput: diagnosis,
+    status: "completed",
+    latency: 0,
+    timestamp: now(),
+    summary: diagnosis.rootCause
+  });
+
   const completedAt = new Date();
-  const toolDurationMs = steps.reduce((total, step) => total + step.durationMs, 0);
+  const totalDurationMs = completedAt.getTime() - startedAt.getTime();
+  const agentRun: AgentRun = {
+    runId: `local-run-${incidentId}-${startedAt.getTime()}`,
+    incidentId,
+    model: "local-fallback",
+    status: "completed",
+    startTime: startedAt.toISOString(),
+    endTime: completedAt.toISOString(),
+    totalLatency: totalDurationMs,
+    totalToolCalls: called.size,
+    finalDiagnosis: diagnosis,
+    confidence: diagnosis.confidence,
+    steps
+  };
 
   return {
     id: `task-${incidentId}-${startedAt.getTime()}`,
@@ -154,8 +127,9 @@ export const diagnoseIncidentLocal = async (
     status: "completed",
     startedAt: startedAt.toISOString(),
     completedAt: completedAt.toISOString(),
-    totalDurationMs: Math.max(completedAt.getTime() - startedAt.getTime(), toolDurationMs),
+    totalDurationMs,
     steps,
-    diagnosis
+    diagnosis,
+    agentRun
   };
 };

@@ -1,8 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { getIncident, toolCatalog, tools } from "@aiops-sentinel/core";
-import type { LogEntry, ToolContext, ToolResult } from "@aiops-sentinel/core";
+import { executeRegisteredTool, getIncident, toolCatalog } from "@aiops-sentinel/core";
+import type { LogEntry, ToolContext, ToolName, ToolResult } from "@aiops-sentinel/core";
 
 const asMcpResult = <T>(toolResult: ToolResult<T>) => ({
   structuredContent: toolResult as unknown as Record<string, unknown>,
@@ -14,18 +14,24 @@ const asMcpResult = <T>(toolResult: ToolResult<T>) => ({
   ]
 });
 
-const contextFrom = (input: { incidentId?: string; serviceId?: string }): ToolContext => {
+const contextFrom = (input: { incidentId?: string; serviceId?: string; context?: ToolContext }): ToolContext => {
   const incident = input.incidentId ? getIncident(input.incidentId) : undefined;
 
   return {
-    incidentId: input.incidentId,
-    serviceId: input.serviceId ?? incident?.serviceId
+    incidentId: input.context?.incidentId ?? input.incidentId,
+    serviceId: input.context?.serviceId ?? input.serviceId ?? incident?.serviceId
   };
 };
 
+const call = async <T>(
+  toolName: ToolName,
+  input: Record<string, unknown>,
+  contextInput: { incidentId?: string; serviceId?: string; context?: ToolContext }
+) => asMcpResult(await executeRegisteredTool(toolName, input, contextFrom(contextInput)) as ToolResult<T>);
+
 const server = new McpServer({
   name: "aiops-sentinel-mcp-server",
-  version: "0.1.0"
+  version: "0.2.0"
 });
 
 server.registerResource(
@@ -53,75 +59,94 @@ server.registerTool(
     title: "Incident Summary",
     description: "读取告警标题、等级、状态、影响服务和业务摘要。",
     inputSchema: {
-      incidentId: z.string().describe("故障 ID，例如 inc-20260824-001")
+      incidentId: z.string().describe("故障 ID，例如 inc-20260824-001"),
+      context: z.object({ incidentId: z.string().optional(), serviceId: z.string().optional() }).optional()
     }
   },
-  async ({ incidentId }) => asMcpResult(tools.incident_summary({ incidentId }, contextFrom({ incidentId })))
+  async ({ incidentId, context }) => call("incident_summary", { incidentId }, { incidentId, context })
 );
 
 server.registerTool(
-  "metric_query",
+  "query_metrics",
   {
-    title: "Metric Query",
+    title: "Query Metrics",
     description: "读取服务延迟、错误率、CPU、内存等时间序列指标。",
     inputSchema: {
-      serviceId: z.string().describe("服务 ID，例如 svc-order")
+      serviceId: z.string().describe("服务 ID，例如 svc-order"),
+      context: z.object({ incidentId: z.string().optional(), serviceId: z.string().optional() }).optional()
     }
   },
-  async ({ serviceId }) => asMcpResult(tools.metric_query({ serviceId }, contextFrom({ serviceId })))
+  async ({ serviceId, context }) => call("metric_query", { serviceId }, { serviceId, context })
 );
 
 server.registerTool(
-  "log_search",
+  "query_logs",
   {
-    title: "Log Search",
+    title: "Query Logs",
     description: "按服务和日志级别检索异常日志。",
     inputSchema: {
       serviceId: z.string().describe("服务 ID，例如 svc-order"),
-      level: z.enum(["error", "warn", "info"]).optional().describe("可选日志级别")
+      level: z.enum(["error", "warn", "info"]).optional().describe("可选日志级别"),
+      context: z.object({ incidentId: z.string().optional(), serviceId: z.string().optional() }).optional()
     }
   },
-  async ({ serviceId, level }) =>
-    asMcpResult(tools.log_search({ serviceId, level: level as LogEntry["level"] | undefined }, contextFrom({ serviceId })))
+  async ({ serviceId, level, context }) =>
+    call<LogEntry[]>("log_search", { serviceId, level: level as LogEntry["level"] | undefined }, { serviceId, context })
 );
 
 server.registerTool(
-  "dependency_trace",
+  "query_dependency",
   {
-    title: "Dependency Trace",
+    title: "Query Dependency",
     description: "查询服务依赖链，判断故障是否来自上下游扩散。",
     inputSchema: {
-      serviceId: z.string().describe("服务 ID，例如 svc-order")
+      serviceId: z.string().describe("服务 ID，例如 svc-order"),
+      context: z.object({ incidentId: z.string().optional(), serviceId: z.string().optional() }).optional()
     }
   },
-  async ({ serviceId }) => asMcpResult(tools.dependency_trace({ serviceId }, contextFrom({ serviceId })))
+  async ({ serviceId, context }) => call("dependency_trace", { serviceId }, { serviceId, context })
 );
 
 server.registerTool(
-  "knowledge_search",
+  "get_service_health",
   {
-    title: "Knowledge Search",
+    title: "Get Service Health",
+    description: "聚合服务最新错误率、延迟和资源水位，给出健康状态摘要。",
+    inputSchema: {
+      serviceId: z.string().describe("服务 ID，例如 svc-order"),
+      context: z.object({ incidentId: z.string().optional(), serviceId: z.string().optional() }).optional()
+    }
+  },
+  async ({ serviceId, context }) => call("service_health", { serviceId }, { serviceId, context })
+);
+
+server.registerTool(
+  "search_knowledge",
+  {
+    title: "Search Knowledge",
     description: "检索 Runbook 和历史处置知识，为诊断提供 RAG 证据。",
     inputSchema: {
       serviceId: z.string().describe("服务 ID，例如 svc-order"),
-      query: z.string().optional().describe("检索词，可以使用故障标题")
+      query: z.string().optional().describe("检索词，可以使用故障标题或当前假设"),
+      context: z.object({ incidentId: z.string().optional(), serviceId: z.string().optional() }).optional()
     }
   },
-  async ({ serviceId, query }) => asMcpResult(tools.knowledge_search({ serviceId, query }, contextFrom({ serviceId })))
+  async ({ serviceId, query, context }) => call("knowledge_search", { serviceId, query }, { serviceId, context })
 );
 
 server.registerTool(
   "rollback_advisor",
   {
     title: "Rollback Advisor",
-    description: "根据错误率和故障上下文判断是否需要灰度回滚。",
+    description: "根据错误率和故障上下文生成回滚建议，只输出 ActionProposal，不执行回滚。",
     inputSchema: {
       incidentId: z.string().describe("故障 ID，例如 inc-20260824-001"),
-      errorRate: z.number().describe("最新错误率百分比")
+      errorRate: z.number().describe("最新错误率百分比"),
+      context: z.object({ incidentId: z.string().optional(), serviceId: z.string().optional() }).optional()
     }
   },
-  async ({ incidentId, errorRate }) =>
-    asMcpResult(tools.rollback_advisor({ incidentId, errorRate }, contextFrom({ incidentId })))
+  async ({ incidentId, errorRate, context }) =>
+    call("rollback_advisor", { incidentId, errorRate }, { incidentId, context })
 );
 
 const transport = new StdioServerTransport();

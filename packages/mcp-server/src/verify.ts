@@ -24,10 +24,12 @@ try {
         server: "aiops-sentinel-mcp-server",
         availableTools,
         sampleCall: {
-          tool: "log_search",
-          metadata: logSearchResult.metadata,
-          resultCount: logSearchResult.result.length,
-          firstTraceId: logSearchResult.result[0]?.traceId
+          tool: "query_logs",
+          success: logSearchResult.success,
+          source: logSearchResult.source,
+          latencyMs: logSearchResult.latencyMs,
+          resultCount: logSearchResult.data?.length ?? 0,
+          firstTraceId: logSearchResult.data?.[0]?.traceId
         }
       },
       null,

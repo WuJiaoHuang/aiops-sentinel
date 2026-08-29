@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { getToolDefinition } from "./tools";
 import type { ToolContext, ToolName, ToolResult } from "./types";
 
 type TextContent = {
@@ -14,6 +15,7 @@ type McpToolRuntimeConfig = {
   command?: string;
   args?: string[];
   cwd?: string;
+  toolTimeoutMs?: number;
 };
 
 export type McpToolRuntime = {
@@ -43,6 +45,21 @@ const findRepoRoot = () => {
 const defaultServerCommand = () => (process.platform === "win32" ? "npm.cmd" : "npm");
 
 const defaultServerArgs = () => ["run", "start", "--workspace", "@aiops-sentinel/mcp-server", "--silent"];
+
+const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} 超时：${timeoutMs}ms`)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+};
 
 const parseToolResult = <T>(rawResult: Awaited<ReturnType<Client["callTool"]>>): ToolResult<T> => {
   if ("structuredContent" in rawResult && rawResult.structuredContent) {
@@ -74,6 +91,7 @@ export const createMcpToolRuntime = async (config: McpToolRuntimeConfig = {}): P
   });
 
   await client.connect(transport);
+  const toolTimeoutMs = config.toolTimeoutMs ?? Number(process.env.AIOPS_TOOL_TIMEOUT_MS ?? 5000);
 
   return {
     listTools: async () => {
@@ -81,15 +99,38 @@ export const createMcpToolRuntime = async (config: McpToolRuntimeConfig = {}): P
       return result.tools.map((tool) => tool.name);
     },
     callTool: async <T>(tool: ToolName, input: Record<string, unknown>, context: ToolContext) => {
-      const result = await client.callTool({
-        name: tool,
-        arguments: {
-          ...input,
-          context
-        }
-      });
+      const startedAt = Date.now();
+      const definition = getToolDefinition(tool);
 
-      return parseToolResult<T>(result);
+      try {
+        const result = await withTimeout(
+          client.callTool({
+            name: definition.mcpName,
+            arguments: {
+              ...input,
+              context
+            }
+          }),
+          toolTimeoutMs,
+          `${definition.mcpName} MCP Tool`
+        );
+        const parsed = parseToolResult<T>(result);
+
+        return {
+          ...parsed,
+          source: "mcp",
+          latencyMs: parsed.latencyMs || Date.now() - startedAt
+        };
+      } catch (error) {
+        return {
+          success: false,
+          data: null,
+          error: error instanceof Error ? error.message : "MCP Tool 调用失败",
+          source: "mcp",
+          latencyMs: Date.now() - startedAt,
+          timestamp: new Date().toISOString()
+        };
+      }
     },
     close: async () => {
       await client.close();

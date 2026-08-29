@@ -552,7 +552,7 @@ const App = () => {
 
             <article className="panel">
               <div className="panelHead">
-                <h2>Agent 步骤流</h2>
+                <h2>诊断过程</h2>
                 <span className="muted">{diagnosisTask?.totalDurationMs ?? 0}ms</span>
               </div>
               <div className="steps">
@@ -560,11 +560,12 @@ const App = () => {
                   <div className="step" key={step.id}>
                     <CheckCircle2 size={17} />
                     <div>
-                      <strong>{step.title}</strong>
+                      <strong>Step {step.stepIndex}：{step.title}</strong>
                       <span>{step.summary}</span>
                       <small>
-                        {step.tool} · {step.durationMs}ms
+                        {step.type} · {step.toolName ?? "agent_runtime"} · {step.latency}ms
                       </small>
+                      {step.toolInput && <code>{JSON.stringify(step.toolInput)}</code>}
                     </div>
                   </div>
                 ))}
@@ -604,8 +605,17 @@ const App = () => {
             <article className="panel actionPanel">
               <div className="panelHead">
                 <h2>处置动作</h2>
-                <span className="muted">演示闭环</span>
+                <span className="muted">Human-in-the-loop</span>
               </div>
+              {diagnosisTask?.diagnosis?.actionProposals?.map((proposal) => (
+                <div className={`actionProposal ${proposal.riskLevel.toLowerCase()}`} key={proposal.action}>
+                  <strong>{proposal.action}</strong>
+                  <span>{proposal.reason}</span>
+                  <small>
+                    风险：{proposal.riskLevel} · {proposal.requiresApproval ? "需要人工确认" : "可低风险执行"}
+                  </small>
+                </div>
+              ))}
               <button onClick={generateRollbackPlan}>
                 <RotateCcw size={16} />
                 生成回滚预案
