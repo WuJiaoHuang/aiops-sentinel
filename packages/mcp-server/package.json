@@ -8,6 +8,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "verify": "tsx src/verify.ts",
+    "test": "tsx src/verify.ts",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
   },

@@ -12,6 +12,7 @@
     "dev:api": "npm run dev --workspace @aiops-sentinel/api",
     "mcp:start": "npm run start --workspace @aiops-sentinel/mcp-server",
     "mcp:verify": "npm run verify --workspace @aiops-sentinel/mcp-server",
+    "test:mcp": "npm run mcp:verify",
     "build": "npm run build --workspaces",
     "check": "npm run typecheck --workspaces",
     "cli": "npm run start --workspace @aiops-sentinel/cli",

@@ -540,6 +540,20 @@ dd {
   margin-top: 4px;
 }
 
+.step code {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #334155;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .steps .step {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -627,6 +641,52 @@ dd {
 
 .actionPanel {
   min-height: 180px;
+}
+
+.actionProposal {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #fed7aa;
+  border-left: 4px solid #f97316;
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: #fff7ed;
+}
+
+.actionProposal.high {
+  border-color: #fecaca;
+  border-left-color: #dc2626;
+  background: #fef2f2;
+}
+
+.actionProposal.medium {
+  border-color: #fde68a;
+  border-left-color: #d97706;
+  background: #fffbeb;
+}
+
+.actionProposal.low {
+  border-color: #bbf7d0;
+  border-left-color: #16a34a;
+  background: #f0fdf4;
+}
+
+.actionProposal strong,
+.actionProposal span,
+.actionProposal small {
+  display: block;
+}
+
+.actionProposal span {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.actionProposal small {
+  color: #7f1d1d;
+  font-weight: 800;
 }
 
 .actionPanel button,
