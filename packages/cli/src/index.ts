@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { listIncidents, logs, services } from "@aiops-sentinel/core";
+import { incidents as listableIncidents, logs, services } from "@aiops-sentinel/core";
 import { diagnoseIncident } from "@aiops-sentinel/core/agent";
+import { listIncidents } from "@aiops-sentinel/core/tools";
 import { loadRootEnv } from "./env";
 
 loadRootEnv();
@@ -23,6 +24,9 @@ const main = async () => {
         })),
         openIncidents: listIncidents().filter((incident) => incident.status !== "resolved")
       });
+      break;
+    case "incidents":
+      print(listableIncidents);
       break;
     case "diagnose":
       if (!argument) {

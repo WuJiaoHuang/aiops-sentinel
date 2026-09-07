@@ -44,7 +44,16 @@ export type CurrentUser = {
   team: string;
 };
 
-export type AuditAction = "login" | "logout" | "create_diagnosis_task" | "view_console";
+export type AuditAction =
+  | "login"
+  | "logout"
+  | "create_diagnosis_task"
+  | "view_console"
+  | "action_proposed"
+  | "approval_requested"
+  | "approval_approved"
+  | "approval_rejected"
+  | "agent_resumed";
 
 export type AuditEvent = {
   id: string;
@@ -127,9 +136,11 @@ export type ActionProposal = {
   requiresApproval: boolean;
 };
 
+export type ModelSource = "deepseek" | "fallback" | "mock";
+
 export type Diagnosis = {
   incidentId: string;
-  modelSource: "deepseek" | "mock";
+  modelSource: ModelSource;
   rootCause: string;
   confidence: number;
   impact: string;
@@ -155,9 +166,20 @@ export type AgentState = {
   confidence: number;
   stepCount: number;
   finalDiagnosis: Diagnosis | null;
+  pendingActionProposal?: ActionProposal;
+  approvalDecision?: ApprovalDecision;
 };
 
-export type AgentStepType = "LLM" | "TOOL" | "ERROR" | "FINAL";
+export type AgentStepType =
+  | "LLM"
+  | "TOOL"
+  | "ERROR"
+  | "FINAL"
+  | "ACTION_PROPOSAL"
+  | "WAITING_APPROVAL"
+  | "APPROVED"
+  | "REJECTED"
+  | "RESUMED";
 
 export type AgentStepStatus = "completed" | "failed" | "skipped";
 
@@ -180,7 +202,7 @@ export type AgentRun = {
   runId: string;
   incidentId: string;
   model: string;
-  status: "running" | "completed" | "failed";
+  status: "running" | "waiting_for_approval" | "approved" | "rejected" | "completed" | "failed";
   startTime: string;
   endTime: string;
   totalLatency: number;
@@ -188,12 +210,45 @@ export type AgentRun = {
   finalDiagnosis: Diagnosis | null;
   confidence: number;
   steps: AgentStep[];
+  modelSource: ModelSource;
+  fallbackUsed: boolean;
 };
+
+export type ApprovalDecision = {
+  status: "APPROVED" | "REJECTED";
+  comment: string;
+  actor: string;
+  decidedAt: string;
+};
+
+export type AgentCheckpoint = {
+  version: 1;
+  state: AgentState;
+  steps: AgentStep[];
+  runId: string;
+  startedAt: string;
+  maxSteps: number;
+  model: string;
+  modelSource: ModelSource;
+  fallbackUsed: boolean;
+  pendingActionProposal: ActionProposal;
+};
+
+export type DiagnosisTaskStatus =
+  | "pending"
+  | "running"
+  | "WAITING_FOR_APPROVAL"
+  | "APPROVED"
+  | "REJECTED"
+  | "COMPLETED"
+  | "FAILED"
+  | "completed"
+  | "failed";
 
 export type DiagnosisTask = {
   id: string;
   incidentId: string;
-  status: "pending" | "running" | "completed" | "failed";
+  status: DiagnosisTaskStatus;
   startedAt: string;
   completedAt: string;
   totalDurationMs: number;
@@ -201,4 +256,7 @@ export type DiagnosisTask = {
   diagnosis: Diagnosis | null;
   agentRun?: AgentRun;
   errorMessage?: string;
+  checkpoint?: AgentCheckpoint;
+  pendingActionProposal?: ActionProposal;
+  approvalDecision?: ApprovalDecision;
 };

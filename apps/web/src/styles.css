@@ -497,6 +497,66 @@ dd {
   color: var(--brand);
 }
 
+.pendingApproval {
+  display: grid;
+  gap: 9px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #fecaca;
+  border-left: 4px solid #dc2626;
+  border-radius: 8px;
+  background: #fef2f2;
+}
+
+.pendingApproval strong,
+.pendingApproval span,
+.pendingApproval small {
+  display: block;
+}
+
+.pendingApproval p {
+  margin: 0;
+  color: #7f1d1d;
+  line-height: 1.5;
+}
+
+.approvalEvidence,
+.approvalActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.approvalEvidence em {
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #991b1b;
+  font-style: normal;
+  padding: 5px 9px;
+  font-size: 12px;
+}
+
+.approvalActions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+
+.approveButton {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.rejectButton {
+  background: #ffffff;
+  color: #b42318;
+}
+
 .evidence,
 .logs,
 .steps,

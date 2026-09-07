@@ -1,5 +1,6 @@
 package com.aiopssentinel.api.controller;
 
+import com.aiopssentinel.api.dto.ApprovalRequest;
 import com.aiopssentinel.api.dto.DiagnosisRequest;
 import com.aiopssentinel.api.dto.DiagnosisTaskResponse;
 import com.aiopssentinel.api.service.DiagnosisGatewayService;
@@ -46,5 +47,19 @@ public class DiagnosisController {
   DiagnosisTaskResponse getDiagnosisTask(@PathVariable String taskId) {
     return diagnosisGatewayService.getTask(taskId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "诊断任务不存在"));
+  }
+
+  @PostMapping("/diagnosis-tasks/{taskId}/approve")
+  DiagnosisTaskResponse approveDiagnosisTask(
+      @PathVariable String taskId,
+      @Valid @RequestBody ApprovalRequest request) {
+    return diagnosisGatewayService.approveTask(taskId, request);
+  }
+
+  @PostMapping("/diagnosis-tasks/{taskId}/reject")
+  DiagnosisTaskResponse rejectDiagnosisTask(
+      @PathVariable String taskId,
+      @Valid @RequestBody ApprovalRequest request) {
+    return diagnosisGatewayService.rejectTask(taskId, request);
   }
 }

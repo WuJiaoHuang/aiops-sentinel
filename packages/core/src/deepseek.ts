@@ -1,4 +1,4 @@
-import type { AgentState, Diagnosis, EvidenceItem, Incident, ToolName } from "./types";
+import type { AgentState, Diagnosis, EvidenceItem, Incident, ModelSource, ToolName } from "./types";
 
 export type DeepSeekConfig = {
   apiKey?: string;
@@ -6,6 +6,7 @@ export type DeepSeekConfig = {
   model?: string;
   timeoutMs?: number;
   maxRetries?: number;
+  allowFallback?: boolean;
 };
 
 export type AgentDecision = {
@@ -16,6 +17,12 @@ export type AgentDecision = {
   hypothesis: string;
   confidence: number;
   finalDiagnosis?: Partial<Diagnosis>;
+};
+
+export type DeepSeekVerificationResult = {
+  model: string;
+  httpStatus: number;
+  content: string;
 };
 
 const wait = (durationMs: number) => new Promise((resolve) => setTimeout(resolve, durationMs));
@@ -54,44 +61,54 @@ const withRetry = async <T>(operation: () => Promise<T>, config: DeepSeekConfig,
   throw lastError instanceof Error ? lastError : new Error(`${label} 调用失败`);
 };
 
-export const buildMockDiagnosis = (incident: Incident, evidence: EvidenceItem[], uncertain = false): Diagnosis => {
-  const evidenceText = evidence.map((item) => item.detail).join("\n").toLowerCase();
-  const hasProductDown = evidenceText.includes("product-service") && evidenceText.includes("down");
-  const hasOrderDownstreamFailure =
-    evidenceText.includes("order-service") &&
-    (evidenceText.includes("product-service call failed") ||
-      evidenceText.includes("fallback") ||
-      evidenceText.includes("timeout") ||
-      evidenceText.includes("retry"));
-  const nexusRootCause =
-    "product-service unavailable -> order-service downstream invocation failed -> retry / timeout / fallback -> order preview degraded";
-  const resolvedUncertain = uncertain && !(hasProductDown && hasOrderDownstreamFailure);
+const evidenceTextOf = (evidence: EvidenceItem[]) => evidence.map((item) => item.detail).join("\n").toLowerCase();
+
+const extractSuspectedDownstream = (evidenceText: string) => {
+  const healthDown = evidenceText.match(/服务\s+([a-z0-9_-]+)\s+健康状态\s+down/i);
+  if (healthDown?.[1]) {
+    return healthDown[1];
+  }
+
+  const failedCall = evidenceText.match(/([a-z0-9_-]+)\s+call failed/i);
+  if (failedCall?.[1]) {
+    return failedCall[1];
+  }
+
+  return "";
+};
+
+export const buildMockDiagnosis = (
+  incident: Incident,
+  evidence: EvidenceItem[],
+  uncertain = false,
+  modelSource: ModelSource = "fallback"
+): Diagnosis => {
+  const evidenceText = evidenceTextOf(evidence);
+  const suspectedDownstream = extractSuspectedDownstream(evidenceText);
+  const hasTimeoutSignal = /timeout|timed out|超时/.test(evidenceText);
+  const hasFallbackSignal = /fallback|降级/.test(evidenceText);
+  const hasDownSignal = /健康状态\s+down|status["=: ]+down|fetch failed|connection refused|不可达/.test(evidenceText);
+  const evidenceEnough = evidence.length >= 2 && (hasTimeoutSignal || hasFallbackSignal || hasDownSignal);
+  const resolvedUncertain = uncertain || !evidenceEnough;
+  const downstreamPhrase = suspectedDownstream ? `下游依赖 ${suspectedDownstream}` : "某个下游依赖";
 
   return {
     incidentId: incident.id,
-    modelSource: "mock",
+    modelSource,
     rootCause: resolvedUncertain
       ? "当前证据不足，Agent 无法确定唯一根因。"
-      : hasProductDown && hasOrderDownstreamFailure
-        ? nexusRootCause
-        : incident.serviceId === "svc-order"
-          ? "本次下单失败大概率由 order-service 最新发布后支付服务超时向主链路扩散导致。"
-          : "本次延迟问题大概率与登录链路中的 Redis token 查询变慢有关。",
-    confidence: resolvedUncertain ? 0.45 : incident.severity === "critical" ? 0.84 : 0.72,
+      : `${incident.serviceId} 受影响，证据显示 ${downstreamPhrase} 存在不可用、超时或降级信号，导致当前业务流程异常。`,
+    confidence: resolvedUncertain ? 0.45 : incident.severity === "critical" ? 0.82 : 0.7,
     impact:
       incident.severity === "critical"
-        ? "到达支付确认环节的用户下单成功率下降，核心交易链路受到影响。"
-        : "核心功能仍然可用，但用户会明显感知响应变慢。",
+        ? "核心链路受到影响，用户请求可能出现失败、超时或降级响应。"
+        : "核心功能仍可能可用，但用户会感知响应变慢或部分能力降级。",
     recommendation: resolvedUncertain
-      ? "建议继续补充日志、指标、依赖链路和变更记录，暂不执行高风险修复。"
-      : hasProductDown && hasOrderDownstreamFailure
-        ? "优先恢复 product-service，并观察 order-service 预览接口延迟、错误率和 fallback 日志是否回落。"
-        : incident.severity === "critical"
-          ? "建议先开启超时降级，降低重试放大效应，同步通知业务负责人，并准备人工确认后的受控回滚。"
-          : "建议检查缓存、数据库或下游依赖延迟，必要时临时扩容热点资源。",
+      ? "建议继续补充日志、指标、依赖链路和服务健康证据，暂不执行高风险修复。"
+      : `先保持降级保护，继续观察 ${incident.serviceId} 的错误率和延迟；针对 ${downstreamPhrase} 做人工确认后的恢复或回滚预案。`,
     rollbackAdvice:
       incident.severity === "critical"
-        ? "如需回滚，只生成建议，不自动执行；必须由值班负责人确认。"
+        ? "如需回滚、重启或改配置，只生成建议，不自动执行；必须由值班负责人确认。"
         : "当前证据不足，不建议立即回滚业务代码。",
     evidence,
     uncertain: resolvedUncertain,
@@ -100,7 +117,7 @@ export const buildMockDiagnosis = (incident: Incident, evidence: EvidenceItem[],
         ? [
             {
               action: "rollback version",
-              reason: "严重故障且错误率可能超过阈值，回滚属于高风险线上操作。",
+              reason: "严重故障下可能需要回滚版本，但这是高风险线上操作，必须先人工审批。",
               riskLevel: "HIGH",
               evidence: evidence.map((item) => item.title).slice(0, 4),
               requiresApproval: true
@@ -139,12 +156,15 @@ export const normalizeDiagnosis = (
   impact: value.impact || "模型未返回明确影响范围。",
   recommendation: value.recommendation || "建议结合日志、指标和依赖链路继续排查。",
   rollbackAdvice: value.rollbackAdvice || "当前证据不足，暂不建议直接回滚。",
-  evidence: Array.isArray(value.evidence) && value.evidence.length > 0 ? value.evidence : evidence,
+  evidence: evidence.length > 0 ? evidence : Array.isArray(value.evidence) ? value.evidence : [],
   actionProposals: value.actionProposals ?? [],
   uncertain: value.uncertain ?? false
 });
 
-const chatCompletion = async (config: DeepSeekConfig, messages: Array<{ role: string; content: string }>) => {
+const chatCompletion = async (
+  config: DeepSeekConfig,
+  messages: Array<{ role: string; content: string }>
+): Promise<{ status: number; content: string }> => {
   const response = await fetch(`${config.baseUrl ?? "https://api.deepseek.com"}/chat/completions`, {
     method: "POST",
     headers: {
@@ -169,21 +189,72 @@ const chatCompletion = async (config: DeepSeekConfig, messages: Array<{ role: st
     throw new Error("DeepSeek 未返回 content");
   }
 
-  return content;
+  return { status: response.status, content };
 };
 
-export const requestAgentDecision = async (config: DeepSeekConfig, state: AgentState): Promise<AgentDecision> => {
+const ensureDeepSeekKey = (config: DeepSeekConfig) => {
   if (!config.apiKey) {
     throw new Error("未配置 DeepSeek API Key");
   }
+};
 
-  const content = await withRetry(
+const validateAgentDecision = (decision: Partial<AgentDecision>): AgentDecision => {
+  if (decision.type !== "TOOL" && decision.type !== "FINAL") {
+    throw new Error("DeepSeek 输出非法 type");
+  }
+
+  if (decision.type === "TOOL") {
+    const allowedTools: ToolName[] = [
+      "incident_summary",
+      "service_health",
+      "metric_query",
+      "log_search",
+      "dependency_trace",
+      "knowledge_search",
+      "rollback_advisor"
+    ];
+
+    if (!decision.toolName || !allowedTools.includes(decision.toolName)) {
+      throw new Error("DeepSeek 输出非法 Tool");
+    }
+  }
+
+  return {
+    type: decision.type,
+    toolName: decision.toolName,
+    toolInput: decision.toolInput ?? {},
+    reason: typeof decision.reason === "string" ? decision.reason : "模型未返回 reason",
+    hypothesis: typeof decision.hypothesis === "string" ? decision.hypothesis : "",
+    confidence: typeof decision.confidence === "number" ? Math.min(Math.max(decision.confidence, 0), 1) : 0.5,
+    finalDiagnosis: decision.finalDiagnosis
+  };
+};
+
+const agentSystemPrompt = [
+  "你是 AIOps 动态 Tool Calling Agent。你只能返回严格 JSON。",
+  "字段：type=TOOL或FINAL，toolName，toolInput，reason，hypothesis，confidence，finalDiagnosis。",
+  "可用工具：incident_summary、metric_query、log_search、dependency_trace、service_health、knowledge_search、rollback_advisor。",
+  "严格规则：",
+  "1. 不能根据 Incident title 直接猜根因。",
+  "2. 不能根据 target/service 名称直接认定某个下游是根因。",
+  "3. 根因至少需要 2 个独立 Evidence 支撑。",
+  "4. 如果怀疑下游服务，必须通过 dependency_trace 或 log_search 发现依赖名称后，再调用 service_health。",
+  "5. Tool 参数必须来自 Incident、当前 Evidence、dependency_trace 或 previous Tool Result。",
+  "6. 不得凭空 invent service name。",
+  "7. Evidence 不足时必须 uncertain=true。",
+  "8. 如果 Tool 失败，要记录失败并尝试其他路径，不要立即终止。",
+  "9. 高风险动作只能生成 actionProposals，不能自动执行。"
+].join("\n");
+
+export const requestAgentDecision = async (config: DeepSeekConfig, state: AgentState): Promise<AgentDecision> => {
+  ensureDeepSeekKey(config);
+
+  const { content } = await withRetry(
     () =>
       chatCompletion(config, [
         {
           role: "system",
-          content:
-            "你是 AIOps 动态 Tool Calling Agent。你只能返回严格 JSON。字段：type=TOOL或FINAL，toolName，toolInput，reason，hypothesis，confidence，finalDiagnosis。可用工具：incident_summary、service_health、metric_query、log_search、dependency_trace、knowledge_search、rollback_advisor。证据不足时继续选工具；证据充分或无法继续时输出 FINAL。不要强行确定根因，允许 uncertain=true。高风险动作只能生成 actionProposals，不能自动执行。"
+          content: agentSystemPrompt
         },
         {
           role: "user",
@@ -193,7 +264,9 @@ export const requestAgentDecision = async (config: DeepSeekConfig, state: AgentS
             toolCalls: state.toolCalls,
             currentHypothesis: state.currentHypothesis,
             confidence: state.confidence,
-            stepCount: state.stepCount
+            stepCount: state.stepCount,
+            pendingActionProposal: state.pendingActionProposal,
+            approvalDecision: state.approvalDecision
           })
         }
       ]),
@@ -201,11 +274,7 @@ export const requestAgentDecision = async (config: DeepSeekConfig, state: AgentS
     "DeepSeek Agent Decision"
   );
 
-  const parsed = JSON.parse(extractJson(content)) as AgentDecision;
-  return {
-    ...parsed,
-    confidence: typeof parsed.confidence === "number" ? Math.min(Math.max(parsed.confidence, 0), 1) : 0.5
-  };
+  return validateAgentDecision(JSON.parse(extractJson(content)) as Partial<AgentDecision>);
 };
 
 export const requestDeepSeekDiagnosis = async (
@@ -213,30 +282,50 @@ export const requestDeepSeekDiagnosis = async (
   incident: Incident,
   evidence: EvidenceItem[]
 ): Promise<Diagnosis> => {
-  if (!config.apiKey) {
-    return buildMockDiagnosis(incident, evidence);
-  }
+  ensureDeepSeekKey(config);
 
-  try {
-    const content = await withRetry(
-      () =>
-        chatCompletion(config, [
-          {
-            role: "system",
-            content:
-              "你是一个 AIOps 故障诊断 Agent。只返回严格 JSON，不要输出 Markdown。字段包含 incidentId、rootCause、confidence、impact、recommendation、rollbackAdvice、evidence、actionProposals、uncertain。confidence 必须是 0 到 1 的数字。涉及 restart service、rollback version、modify configuration 的动作必须放入 actionProposals，MEDIUM/HIGH requiresApproval=true，不得声称已执行。除字段名外，字段内容使用中文。"
-          },
-          {
-            role: "user",
-            content: JSON.stringify({ incident, evidence })
-          }
-        ]),
-      config,
-      "DeepSeek Final Diagnosis"
-    );
+  const { content } = await withRetry(
+    () =>
+      chatCompletion(config, [
+        {
+          role: "system",
+          content:
+            "你是一个 AIOps 故障诊断 Agent。只返回严格 JSON，不要输出 Markdown。字段包含 incidentId、rootCause、confidence、impact、recommendation、rollbackAdvice、evidence、actionProposals、uncertain。confidence 必须是 0 到 1 的数字。根因至少需要两个独立 Evidence。涉及 restart service、rollback version、modify configuration 的动作必须放入 actionProposals，MEDIUM/HIGH requiresApproval=true，不得声称已执行。除字段名外，字段内容使用中文。"
+        },
+        {
+          role: "user",
+          content: JSON.stringify({ incident, evidence })
+        }
+      ]),
+    config,
+    "DeepSeek Final Diagnosis"
+  );
 
-    return normalizeDiagnosis(JSON.parse(extractJson(content)) as Partial<Diagnosis>, incident, evidence);
-  } catch {
-    return buildMockDiagnosis(incident, evidence, evidence.length < 2);
-  }
+  return normalizeDiagnosis(JSON.parse(extractJson(content)) as Partial<Diagnosis>, incident, evidence, "deepseek");
+};
+
+export const verifyDeepSeekOnline = async (config: DeepSeekConfig): Promise<DeepSeekVerificationResult> => {
+  ensureDeepSeekKey(config);
+  const model = config.model ?? "deepseek-chat";
+  const { status, content } = await withRetry(
+    () =>
+      chatCompletion(config, [
+        {
+          role: "system",
+          content: "Return strict JSON only."
+        },
+        {
+          role: "user",
+          content: "{\"ping\":\"deepseek verification\"}"
+        }
+      ]),
+    { ...config, maxRetries: config.maxRetries ?? 0 },
+    "DeepSeek Verification"
+  );
+
+  return {
+    model,
+    httpStatus: status,
+    content
+  };
 };

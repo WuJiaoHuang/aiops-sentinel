@@ -71,4 +71,9 @@ public class DiagnosisTaskEntity {
   public String getPipelineJson() {
     return pipelineJson;
   }
+
+  public void updateStatus(String status, String pipelineJson) {
+    this.status = status;
+    this.pipelineJson = pipelineJson;
+  }
 }

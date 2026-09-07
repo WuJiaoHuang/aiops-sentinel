@@ -1,5 +1,6 @@
 package com.aiopssentinel.api.service;
 
+import com.aiopssentinel.api.dto.ApprovalRequest;
 import com.aiopssentinel.api.dto.DiagnosisRequest;
 import com.aiopssentinel.api.dto.DiagnosisTaskResponse;
 import com.aiopssentinel.api.entity.DiagnosisTaskEntity;
@@ -12,6 +13,8 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
 @Service
 public class DiagnosisGatewayService {
@@ -47,7 +50,7 @@ public class DiagnosisGatewayService {
     DiagnosisTaskResponse response = new DiagnosisTaskResponse(
         taskId,
         request.incidentId(),
-        "accepted",
+        "WAITING_FOR_APPROVAL",
         "spring-boot",
         acceptedAt,
         pipeline,
@@ -56,7 +59,7 @@ public class DiagnosisGatewayService {
     diagnosisTaskRepository.save(new DiagnosisTaskEntity(
         taskId,
         request.incidentId(),
-        "accepted",
+        "WAITING_FOR_APPROVAL",
         "spring-boot",
         acceptedAt,
         toJson(pipeline)));
@@ -117,6 +120,56 @@ public class DiagnosisGatewayService {
         .uri("/api/ai/status")
         .retrieve()
         .body(Object.class);
+  }
+
+  public DiagnosisTaskResponse approveTask(String taskId, ApprovalRequest request) {
+    return decideTask(taskId, request, "APPROVED", "approval_approved", "人工批准高风险 ActionProposal。");
+  }
+
+  public DiagnosisTaskResponse rejectTask(String taskId, ApprovalRequest request) {
+    return decideTask(taskId, request, "REJECTED", "approval_rejected", "人工拒绝高风险 ActionProposal。");
+  }
+
+  private DiagnosisTaskResponse decideTask(
+      String taskId,
+      ApprovalRequest request,
+      String status,
+      String auditAction,
+      String auditDetail) {
+    DiagnosisTaskEntity entity = diagnosisTaskRepository.findById(taskId)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "诊断任务不存在"));
+
+    if (!"WAITING_FOR_APPROVAL".equals(entity.getStatus())) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "只有 WAITING_FOR_APPROVAL 状态的任务可以审批");
+    }
+
+    List<String> pipeline = new java.util.ArrayList<>(fromJson(entity.getPipelineJson()));
+    pipeline.add(status);
+    pipeline.add("agent-resume");
+    entity.updateStatus(status, toJson(pipeline));
+    diagnosisTaskRepository.save(entity);
+
+    DiagnosisTaskResponse response = new DiagnosisTaskResponse(
+        entity.getId(),
+        entity.getIncidentId(),
+        entity.getStatus(),
+        entity.getGateway(),
+        entity.getAcceptedAt(),
+        pipeline,
+        "mysql");
+    taskCacheService.cacheTask(response);
+    auditService.record(
+        auditAction,
+        request.operator() == null || request.operator().isBlank() ? "demo-user" : request.operator(),
+        taskId,
+        auditDetail + " comment=" + (request.comment() == null ? "" : request.comment()));
+    auditService.record(
+        "agent_resumed",
+        request.operator() == null || request.operator().isBlank() ? "demo-user" : request.operator(),
+        taskId,
+        "审批结果已写入上下文，Agent 可继续生成最终建议，不自动执行危险动作。");
+
+    return response;
   }
 
   private String toJson(List<String> pipeline) {

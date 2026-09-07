@@ -51,6 +51,9 @@ const diagnosisTask = await diagnoseIncident("inc-nexus-preview-degraded", {
   deepseekModel: process.env.DEEPSEEK_MODEL
 });
 
+const checkpointEvidence = diagnosisTask.checkpoint?.state.evidence ?? [];
+const runtimeEvidence = diagnosisTask.diagnosis?.evidence ?? checkpointEvidence;
+
 const report = {
   environment: {
     target: process.env.TARGET_SERVICE_NAME,
@@ -78,8 +81,21 @@ const report = {
     }
   },
   agent: {
+    status: diagnosisTask.status,
+    modelSource: diagnosisTask.diagnosis?.modelSource ?? diagnosisTask.checkpoint?.modelSource,
+    fallbackUsed: diagnosisTask.agentRun?.fallbackUsed ?? diagnosisTask.checkpoint?.fallbackUsed,
+    pendingAction: diagnosisTask.pendingActionProposal
+      ? {
+          action: diagnosisTask.pendingActionProposal.action,
+          riskLevel: diagnosisTask.pendingActionProposal.riskLevel,
+          requiresApproval: diagnosisTask.pendingActionProposal.requiresApproval
+        }
+      : null,
+    toolOrder: diagnosisTask.steps
+      .filter((step) => step.type === "TOOL")
+      .map((step) => step.toolName),
     diagnosis: diagnosisTask.diagnosis?.rootCause,
-    evidence: diagnosisTask.diagnosis?.evidence.map((item) => ({
+    evidence: runtimeEvidence.map((item) => ({
       source: item.source,
       detail: item.detail
     }))

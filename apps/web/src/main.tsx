@@ -91,7 +91,12 @@ const auditActionLabel: Record<AuditAction, string> = {
   login: "登录",
   logout: "退出",
   create_diagnosis_task: "创建诊断",
-  view_console: "查看控制台"
+  view_console: "查看控制台",
+  action_proposed: "生成动作建议",
+  approval_requested: "请求审批",
+  approval_approved: "审批通过",
+  approval_rejected: "审批拒绝",
+  agent_resumed: "Agent 恢复"
 };
 
 const fetchJson = async <T,>(url: string, options: RequestInit = {}, token?: string): Promise<T> => {
@@ -126,6 +131,8 @@ const App = () => {
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [rollbackPlan, setRollbackPlan] = React.useState<string[]>([]);
   const [copyState, setCopyState] = React.useState("复制 CLI 诊断命令");
+  const [approvalComment, setApprovalComment] = React.useState("");
+  const [approving, setApproving] = React.useState<"approve" | "reject" | null>(null);
   const [loginForm, setLoginForm] = React.useState({ username: "admin", password: "aiops2026" });
   const [loginError, setLoginError] = React.useState("");
   const [loggingIn, setLoggingIn] = React.useState(false);
@@ -264,12 +271,51 @@ const App = () => {
       const task = await fetchJson<DiagnosisTask>(`${apiBaseUrl}/api/diagnosis-tasks/${taskId}`, {}, token);
       setDiagnosisTask(task);
 
-      if (task.status === "completed" || task.status === "failed") {
+      if (
+        task.status === "completed" ||
+        task.status === "COMPLETED" ||
+        task.status === "failed" ||
+        task.status === "FAILED" ||
+        task.status === "WAITING_FOR_APPROVAL"
+      ) {
         return task;
       }
     }
 
     throw new Error("诊断任务等待超时");
+  };
+
+  const decidePendingAction = async (decision: "approve" | "reject") => {
+    if (!diagnosisTask) {
+      return;
+    }
+
+    setApproving(decision);
+    try {
+      const task = await fetchJson<DiagnosisTask>(
+        `${apiBaseUrl}/api/diagnosis-tasks/${diagnosisTask.id}/${decision}`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            comment: approvalComment || (decision === "approve" ? "approved by operator" : "rejected by operator")
+          })
+        },
+        token
+      );
+      const auditEvents = await fetchJson<AuditEvent[]>(`${apiBaseUrl}/api/audit-events`, {}, token);
+      setDiagnosisTask(task);
+      setConsoleData((current) => ({
+        ...current,
+        diagnosisTasks: [task, ...current.diagnosisTasks.filter((item) => item.id !== task.id)],
+        auditEvents
+      }));
+      setApprovalComment("");
+      setErrorMessage(null);
+    } catch {
+      setErrorMessage("审批接口调用失败，请稍后重试。");
+    } finally {
+      setApproving(null);
+    }
   };
 
   const generateRollbackPlan = () => {
@@ -534,7 +580,7 @@ const App = () => {
               {diagnosisTask ? (
                 <div className="diagnosis">
                   <h3>
-                    {diagnosisTask.status === "failed"
+                    {diagnosisTask.status === "failed" || diagnosisTask.status === "FAILED"
                       ? (diagnosisTask.errorMessage ?? "诊断任务执行失败")
                       : (diagnosisTask.diagnosis?.rootCause ?? "Agent 正在分析日志、指标和依赖证据...")}
                   </h3>
@@ -544,6 +590,43 @@ const App = () => {
                     <span>置信度</span>
                     <strong>{Math.round((diagnosisTask.diagnosis?.confidence ?? 0) * 100)}%</strong>
                   </div>
+                  {diagnosisTask.status === "WAITING_FOR_APPROVAL" && diagnosisTask.pendingActionProposal && (
+                    <div className="pendingApproval">
+                      <strong>Pending Action</strong>
+                      <span>{diagnosisTask.pendingActionProposal.action}</span>
+                      <small>Risk Level：{diagnosisTask.pendingActionProposal.riskLevel}</small>
+                      <p>{diagnosisTask.pendingActionProposal.reason}</p>
+                      <div className="approvalEvidence">
+                        {diagnosisTask.pendingActionProposal.evidence.map((item) => (
+                          <em key={item}>{item}</em>
+                        ))}
+                      </div>
+                      <input
+                        aria-label="审批意见"
+                        placeholder="审批意见"
+                        value={approvalComment}
+                        onChange={(event) => setApprovalComment(event.target.value)}
+                      />
+                      <div className="approvalActions">
+                        <button
+                          className="approveButton"
+                          disabled={approving !== null}
+                          onClick={() => void decidePendingAction("approve")}
+                        >
+                          <CheckCircle2 size={16} />
+                          {approving === "approve" ? "Approving" : "Approve"}
+                        </button>
+                        <button
+                          className="rejectButton"
+                          disabled={approving !== null}
+                          onClick={() => void decidePendingAction("reject")}
+                        >
+                          <AlertTriangle size={16} />
+                          {approving === "reject" ? "Rejecting" : "Reject"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <p className="muted">正在等待诊断结果...</p>
@@ -669,7 +752,13 @@ const App = () => {
                     <button key={task.id} onClick={() => setDiagnosisTask(task)}>
                       <strong>{new Date(task.completedAt).toLocaleString("zh-CN")}</strong>
                       <span>
-                        {task.status === "completed" ? "已完成" : task.status === "failed" ? "失败" : "执行中"} ·{" "}
+                        {task.status === "completed" || task.status === "COMPLETED"
+                          ? "已完成"
+                          : task.status === "failed" || task.status === "FAILED"
+                            ? "失败"
+                            : task.status === "WAITING_FOR_APPROVAL"
+                              ? "等待审批"
+                              : "执行中"} ·{" "}
                         {task.steps.length} 个步骤 · {task.totalDurationMs}ms · 置信度{" "}
                         {Math.round((task.diagnosis?.confidence ?? 0) * 100)}%
                       </span>

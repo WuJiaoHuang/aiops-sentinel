@@ -1,4 +1,7 @@
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { incidents, logs, metrics, services } from "./mockData";
+import { getTargetConfig } from "./providers/targets/TargetConfigLoader";
 import type {
   Incident,
   JsonSchema,
@@ -12,15 +15,20 @@ import type {
 } from "./types";
 
 export type DependencyTraceResult = {
-  service?: Service;
-  dependencies: Service[];
+  service?: Service | { id: string; name: string; runtime?: string };
+  dependencies: Array<Service | { name: string; type: "service" | "infrastructure" }>;
+  provider?: "target-config" | "mock";
+  target?: string;
 };
 
 export type KnowledgeResult = {
   id: string;
-  serviceId: string;
   title: string;
-  content: string;
+  path: string;
+  score: number;
+  snippet: string;
+  serviceId?: string;
+  content?: string;
 };
 
 export type ServiceHealthResult = {
@@ -36,27 +44,6 @@ export type RollbackAdvisorResult = {
   riskLevel: "LOW" | "MEDIUM" | "HIGH";
   requiresApproval: boolean;
 };
-
-const runbookKnowledge: KnowledgeResult[] = [
-  {
-    id: "kb-payment-timeout",
-    serviceId: "svc-order",
-    title: "订单链路超时排查 Runbook",
-    content: "优先检查 payment-service、库存服务和数据库连接池；若错误率超过 10%，开启降级并准备回滚。"
-  },
-  {
-    id: "kb-cache-breakdown",
-    serviceId: "svc-inventory",
-    title: "缓存击穿与热点 Key 处置",
-    content: "观察 Redis QPS、命中率和数据库回源；必要时启用互斥锁、热点 Key 预热和限流。"
-  },
-  {
-    id: "kb-release-risk",
-    serviceId: "global",
-    title: "发布风险判断规则",
-    content: "发布后一小时内错误率、P99 延迟和依赖异常同时上升时，应把新版本变更纳入根因候选。"
-  }
-];
 
 const objectSchema = (
   properties: JsonSchema["properties"],
@@ -100,6 +87,44 @@ const withToolResult = async <T>(
 };
 
 const latestMetricOf = (serviceId: string) => metrics[serviceId]?.at(-1);
+
+const infrastructureNames = new Set(["mysql", "redis", "kafka", "zookeeper", "prometheus", "grafana", "database", "db"]);
+
+const dependencyTypeOf = (name: string): "service" | "infrastructure" =>
+  infrastructureNames.has(name.toLowerCase()) ? "infrastructure" : "service";
+
+const runbookDir = () => path.resolve(process.cwd(), "docs", "runbooks");
+
+const tokenize = (...values: Array<string | undefined>) =>
+  values
+    .join(" ")
+    .toLowerCase()
+    .split(/[^a-z0-9\u4e00-\u9fa5_-]+/i)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 2);
+
+const readRunbooks = (): KnowledgeResult[] => {
+  const directory = runbookDir();
+  if (!existsSync(directory)) {
+    return [];
+  }
+
+  return readdirSync(directory)
+    .filter((file) => file.endsWith(".md"))
+    .map((file) => {
+      const fullPath = path.join(directory, file);
+      const content = readFileSync(fullPath, "utf8");
+      const title = content.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? file.replace(/\.md$/, "");
+      return {
+        id: file.replace(/\.md$/, ""),
+        title,
+        path: path.relative(process.cwd(), fullPath).replace(/\\/g, "/"),
+        score: 0,
+        snippet: content.replace(/\s+/g, " ").slice(0, 220),
+        content
+      };
+    });
+};
 
 export const listIncidents = () => incidents;
 
@@ -177,20 +202,43 @@ export const toolRegistry = {
     description: "分析服务上下游依赖，定位故障是否来自依赖扩散。",
     inputSchema: objectSchema(
       {
+        target: { type: "string", description: "目标系统 ID，例如 nexus-commerce 或 demo-service" },
+        service: { type: "string", description: "目标系统内服务名，例如 order-service" },
         serviceId: { type: "string", description: "服务 ID，例如 svc-order" }
       },
-      ["serviceId"]
+      []
     ),
     execute: async (input: Record<string, unknown>) => {
       const startedAt = Date.now();
-      const serviceId = String(input.serviceId);
+      const targetName = String(input.target ?? process.env.TARGET_SERVICE_NAME ?? "demo-service");
+      const serviceId = serviceOf(input);
       return withToolResult<DependencyTraceResult>(() => {
+        const target = getTargetConfig(targetName);
+        const serviceMetadata = target.services[serviceId];
+
+        if (serviceMetadata) {
+          return {
+            provider: "target-config",
+            target: target.name,
+            service: {
+              id: serviceId,
+              name: serviceId,
+              runtime: serviceMetadata.framework
+            },
+            dependencies: serviceMetadata.dependencies.map((name) => ({
+              name,
+              type: dependencyTypeOf(name)
+            }))
+          };
+        }
+
         const service = services.find((item) => item.id === serviceId);
         const dependencies = service?.dependencies
           .map((dependencyId) => services.find((item) => item.id === dependencyId))
           .filter(Boolean) as Service[];
 
         return {
+          provider: "mock",
           service,
           dependencies: dependencies ?? []
         };
@@ -204,22 +252,37 @@ export const toolRegistry = {
     description: "检索运维 Runbook 和历史处置知识，给 Agent 提供 RAG 证据。",
     inputSchema: objectSchema(
       {
+        target: { type: "string", description: "目标系统 ID，例如 nexus-commerce 或 demo-service" },
+        service: { type: "string", description: "目标系统内服务名，例如 order-service" },
         serviceId: { type: "string", description: "服务 ID，例如 svc-order" },
-        query: { type: "string", description: "检索词，可以使用故障标题或当前假设" }
+        query: { type: "string", description: "检索词，可以使用故障标题、当前假设或日志关键字" },
+        keyword: { type: "string", description: "可选关键词，例如 timeout、fallback" }
       },
-      ["serviceId"]
+      []
     ),
     execute: async (input: Record<string, unknown>) => {
       const startedAt = Date.now();
       return withToolResult<KnowledgeResult[]>(
         () => {
-          const serviceId = String(input.serviceId);
-          const query = typeof input.query === "string" ? input.query.toLowerCase() : "";
-          return runbookKnowledge.filter((item) => {
-            const matchService = item.serviceId === serviceId || item.serviceId === "global";
-            const matchQuery = query ? `${item.title} ${item.content}`.toLowerCase().includes(query) : true;
-            return matchService || matchQuery;
-          });
+          const serviceId = serviceOf(input);
+          const query = typeof input.query === "string" ? input.query : "";
+          const keyword = typeof input.keyword === "string" ? input.keyword : "";
+          const terms = tokenize(serviceId, query, keyword);
+          const uniqueTerms = [...new Set(terms)];
+
+          return readRunbooks()
+            .map((item) => {
+              const haystack = `${item.title} ${item.content ?? ""}`.toLowerCase();
+              const score = uniqueTerms.reduce((total, term) => total + (haystack.includes(term.toLowerCase()) ? 1 : 0), 0);
+              return {
+                ...item,
+                score,
+                content: undefined
+              };
+            })
+            .filter((item) => item.score > 0 || uniqueTerms.length === 0)
+            .sort((left, right) => right.score - left.score)
+            .slice(0, 5);
         },
         startedAt
       );

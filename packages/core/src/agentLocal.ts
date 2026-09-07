@@ -1,5 +1,5 @@
 import { buildMockDiagnosis } from "./deepseek";
-import { getIncident, getToolDefinition, toolRegistry } from "./tools";
+import { incidents, logs, metrics, services } from "./mockData";
 import type { AgentRun, AgentStep, DiagnosisTask, EvidenceItem, MetricPoint, ToolName, ToolResult } from "./types";
 
 export type LocalAgentConfig = {
@@ -7,6 +7,71 @@ export type LocalAgentConfig = {
 };
 
 const now = () => new Date().toISOString();
+
+const getIncident = (incidentId: string) => incidents.find((incident) => incident.id === incidentId);
+
+const toolDescriptions: Record<ToolName, string> = {
+  incident_summary: "读取告警标题、等级、状态、影响服务和业务摘要。",
+  log_search: "按服务和日志级别检索异常日志。",
+  metric_query: "读取延迟、错误率、CPU、内存等时间序列。",
+  dependency_trace: "分析服务上下游依赖。",
+  knowledge_search: "检索运维 Runbook 和历史处置知识。",
+  rollback_advisor: "根据错误率和故障上下文生成高风险动作建议。",
+  service_health: "聚合服务最新错误率、延迟和资源水位。"
+};
+
+const localToolResult = (toolName: ToolName, input: Record<string, unknown>): ToolResult => {
+  const startedAt = Date.now();
+  const serviceId = String(input.serviceId ?? "svc-order");
+  const ok = (data: unknown): ToolResult => ({
+    success: true,
+    data,
+    error: null,
+    source: "mock",
+    latencyMs: Date.now() - startedAt,
+    timestamp: now()
+  });
+
+  if (toolName === "incident_summary") {
+    return ok(getIncident(String(input.incidentId)));
+  }
+
+  if (toolName === "metric_query") {
+    return ok(metrics[serviceId] ?? []);
+  }
+
+  if (toolName === "log_search") {
+    return ok(logs.filter((log) => log.serviceId === serviceId));
+  }
+
+  if (toolName === "dependency_trace") {
+    const service = services.find((item) => item.id === serviceId);
+    return ok({
+      service,
+      dependencies: service?.dependencies.map((id) => services.find((item) => item.id === id)).filter(Boolean) ?? []
+    });
+  }
+
+  if (toolName === "rollback_advisor") {
+    return ok({
+      shouldRollback: true,
+      advice: "错误率超过阈值，只生成建议，不自动执行。",
+      riskLevel: "HIGH",
+      requiresApproval: true
+    });
+  }
+
+  if (toolName === "service_health") {
+    const latest = metrics[serviceId]?.at(-1);
+    return ok({
+      serviceId,
+      status: latest && latest.errorRate >= 10 ? "critical" : "healthy",
+      signals: latest ? [`error rate ${latest.errorRate}%`, `latency ${latest.latencyMs}ms`] : ["没有可用指标窗口"]
+    });
+  }
+
+  return ok([{ title: "本地演示 Runbook", content: "浏览器离线模式使用 mockData 展示诊断链路。" }]);
+};
 
 const summarize = (toolName: ToolName, result: ToolResult) => {
   if (!result.success) {
@@ -27,7 +92,7 @@ const summarize = (toolName: ToolName, result: ToolResult) => {
 
 const evidenceFrom = (toolName: ToolName, result: ToolResult): EvidenceItem => ({
   source: toolName,
-  title: getToolDefinition(toolName).description,
+  title: toolDescriptions[toolName],
   detail: summarize(toolName, result),
   confidence: result.success ? 0.62 : 0.2
 });
@@ -70,8 +135,7 @@ export const diagnoseIncidentLocal = async (
         : toolName === "rollback_advisor"
           ? { incidentId, errorRate: 12 }
           : { serviceId: incident.serviceId, ...(toolName === "log_search" ? { level: "error" } : {}) };
-    const toolDefinition = getToolDefinition(toolName);
-    const result = await toolRegistry[toolName].execute(toolInput, { incidentId, serviceId: incident.serviceId });
+    const result = localToolResult(toolName, toolInput);
     called.add(toolName);
     evidence.push(evidenceFrom(toolName, result));
     steps.push({
@@ -79,7 +143,7 @@ export const diagnoseIncidentLocal = async (
       stepIndex: index + 1,
       type: result.success ? "TOOL" : "ERROR",
       title: `本地 fallback 调用 ${toolName}`,
-      description: toolDefinition.description,
+      description: toolDescriptions[toolName],
       toolName,
       toolInput,
       toolOutput: result,
@@ -90,7 +154,7 @@ export const diagnoseIncidentLocal = async (
     });
   }
 
-  const diagnosis = buildMockDiagnosis(incident, evidence, evidence.length < 2);
+  const diagnosis = buildMockDiagnosis(incident, evidence, evidence.length < 2, "mock");
   steps.push({
     id: `local-step-final`,
     stepIndex: steps.length + 1,
@@ -118,13 +182,15 @@ export const diagnoseIncidentLocal = async (
     totalToolCalls: called.size,
     finalDiagnosis: diagnosis,
     confidence: diagnosis.confidence,
-    steps
+    steps,
+    modelSource: "mock",
+    fallbackUsed: false
   };
 
   return {
     id: `task-${incidentId}-${startedAt.getTime()}`,
     incidentId,
-    status: "completed",
+    status: "COMPLETED",
     startedAt: startedAt.toISOString(),
     completedAt: completedAt.toISOString(),
     totalDurationMs,

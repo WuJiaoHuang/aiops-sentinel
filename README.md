@@ -66,12 +66,12 @@ docs                  架构说明
 
 ## 核心能力
 
-- 动态 Tool Calling Agent：每轮读取 AgentState，由 LLM 决定下一步 Tool，而不是写死日志、指标、依赖的顺序。
+- Dynamic Agent：DeepSeek 在线模式每轮读取 Incident、Evidence、历史 Tool Result、审批上下文和 AgentState，由模型动态决定下一步 Tool；fallback 是通用规则，不包含 Nexus 专用根因判断。
 - 统一 Tool Contract：所有 Tool 都包含 `name`、`description`、JSON Schema 参数定义、`execute()` 和标准 `ToolResult`。
 - 真实 MCP：Agent Runtime 通过 MCP Client 连接 MCP Server，使用官方 MCP SDK 执行 `listTools` 和 `callTool`。
 - Agent Trace：每次诊断记录 LLM 决策、Tool 调用、失败、终止和最终诊断。
 - 稳定性设计：LLM 调用包含 timeout、retry、exponential backoff 和 fallback；Tool 失败会写入 Trace，不会直接拖垮 Agent。
-- Human-in-the-loop：`rollback_advisor` 只生成 ActionProposal，不自动执行回滚、重启或配置修改；中高风险动作必须人工确认。
+- Human-in-the-loop：高风险 ActionProposal 会让任务进入 `WAITING_FOR_APPROVAL`，持久化 checkpoint，approve/reject 后恢复 Agent；本项目不自动执行回滚、重启或配置修改。
 - AI Coding 工程化：通过 `AGENTS.md`、`rules/`、`skills/`、`prompts/` 约束 AI 协作流程。
 
 ## AgentState
@@ -182,9 +182,42 @@ npm run verify:nexus
 该命令会调用真实 provider-backed tools，验证 `product-service` 停机时：
 
 - `get_service_health` 返回 Spring Boot health 的 `DOWN` / 不可达状态。
-- `query_metrics` 从 Prometheus 读取 `order-service` 的 HTTP 指标。
+- `query_metrics` 从 Prometheus 读取 `order-service` 的 HTTP 指标，`http_error_rate` 统一按百分比返回。
 - `query_logs` 从 `order-service.log` 命中 product-service 调用失败和 fallback 日志。
-- Agent 基于工具证据输出 `product-service unavailable -> order-service downstream invocation failed -> retry / timeout / fallback -> order preview degraded`。
+- `dependency_trace` 从 `config/targets.yaml` 读取静态依赖拓扑。
+- Agent 基于工具证据输出诊断，不依赖固定根因字符串。
+
+严格 DeepSeek 在线验证：
+
+```bash
+npm run verify:deepseek
+npm run verify:nexus:llm
+```
+
+`verify:nexus:llm` 使用 `allowFallback=false`。缺少 Key、HTTP 401/429、timeout、fetch failed、JSON parse error 或非法 Tool 输出都会直接失败，不会进入 fallback。
+
+## Knowledge Runbook
+
+`knowledge_search` 会读取 `docs/runbooks/*.md`，根据 query、service、keyword、title 和正文做简单关键词 scoring，返回：
+
+```ts
+{
+  title: string;
+  path: string;
+  score: number;
+  snippet: string;
+}
+```
+
+当前内置 Runbook：
+
+```text
+service-unavailable.md
+downstream-timeout.md
+circuit-breaker-open.md
+kafka-consumer-failure.md
+high-error-rate.md
+```
 
 ## Tool Contract
 
@@ -296,7 +329,13 @@ type ActionProposal = {
 - `MEDIUM`：必须显示“需要人工确认”。
 - `HIGH`：必须显示“需要人工确认”。
 - `rollback_advisor` 只输出建议，不执行 rollback。
-- 当前项目不自动执行重启服务、回滚版本或修改配置。
+- 任务状态变为 `WAITING_FOR_APPROVAL`，并持久化 checkpoint。
+- `POST /api/diagnosis-tasks/:taskId/approve` 记录审批通过，恢复 Agent，生成最终建议。
+- `POST /api/diagnosis-tasks/:taskId/reject` 记录审批拒绝，恢复 Agent，重新规划或结束。
+- Trace 记录 `ACTION_PROPOSAL`、`WAITING_APPROVAL`、`APPROVED`、`REJECTED`、`RESUMED`。
+- Audit 记录 `action_proposed`、`approval_requested`、`approval_approved`、`approval_rejected`、`agent_resumed`。
+- Approve 只表示 operator approved recommendation，不表示动作已执行。
+- 当前项目不自动执行重启服务、回滚版本、修改配置、删除数据或 kill 进程。
 
 ## 完整 Demo Case
 
@@ -368,6 +407,7 @@ Java 网关：http://localhost:8080
 DEEPSEEK_API_KEY=你的 DeepSeek API Key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-chat
+AIOPS_ALLOW_FALLBACK=true
 VITE_API_BASE_URL=http://localhost:8787
 MYSQL_URL=jdbc:mysql://localhost:3306/aiops_sentinel?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
 MYSQL_USERNAME=root
@@ -382,6 +422,19 @@ AIOPS_TOOL_TIMEOUT_MS=5000
 ```
 
 `.env` 已加入 `.gitignore`，不会提交到 GitHub。
+
+验证命令：
+
+```bash
+npm install
+npm run check
+npm run build
+npm run mcp:verify
+npm run verify:deepseek
+npm run verify:nexus
+npm run verify:nexus:llm
+npm run verify:hitl
+```
 
 ## API 接口
 

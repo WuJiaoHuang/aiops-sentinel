@@ -46,6 +46,7 @@ class JavaApiIntegrationTest {
             .content(body))
         .andExpect(status().isAccepted())
         .andExpect(jsonPath("$.taskId", notNullValue()))
+        .andExpect(jsonPath("$.status").value("WAITING_FOR_APPROVAL"))
         .andExpect(jsonPath("$.gateway").value("spring-boot"))
         .andExpect(jsonPath("$.cacheSource").value("redis-write-through"))
         .andReturn()
@@ -63,5 +64,60 @@ class JavaApiIntegrationTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[0].action").value("create_diagnosis_task"))
         .andExpect(jsonPath("$[0].actor").value("java-api-test"));
+  }
+
+  @Test
+  void shouldApproveAndRejectDiagnosisTaskWithAuditEvents() throws Exception {
+    String body = """
+        {
+          "incidentId": "inc-20260824-001",
+          "operator": "java-api-test",
+          "source": "mockmvc"
+        }
+        """;
+
+    String approveResponse = mockMvc.perform(post("/api/diagnosis-tasks")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(body))
+        .andExpect(status().isAccepted())
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
+    String approveTaskId = approveResponse.replaceAll(".*\\\"taskId\\\":\\\"([^\\\"]+)\\\".*", "$1");
+
+    mockMvc.perform(post("/api/diagnosis-tasks/{taskId}/approve", approveTaskId)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "comment": "approved by test",
+                  "operator": "java-api-test"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("APPROVED"));
+
+    String rejectResponse = mockMvc.perform(post("/api/diagnosis-tasks")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(body))
+        .andExpect(status().isAccepted())
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
+    String rejectTaskId = rejectResponse.replaceAll(".*\\\"taskId\\\":\\\"([^\\\"]+)\\\".*", "$1");
+
+    mockMvc.perform(post("/api/diagnosis-tasks/{taskId}/reject", rejectTaskId)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "comment": "rollback not allowed",
+                  "operator": "java-api-test"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("REJECTED"));
+
+    mockMvc.perform(get("/api/audit-events"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].action").value("agent_resumed"));
   }
 }

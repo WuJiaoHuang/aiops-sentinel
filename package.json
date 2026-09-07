@@ -15,7 +15,10 @@
     "test:mcp": "npm run mcp:verify",
     "build": "npm run build --workspaces",
     "check": "npm run typecheck --workspaces",
+    "verify:deepseek": "tsx scripts/verify-deepseek.ts",
     "verify:nexus": "tsx scripts/verify-nexus.ts",
+    "verify:nexus:llm": "tsx scripts/verify-nexus-llm.ts",
+    "verify:hitl": "tsx scripts/verify-hitl.ts",
     "cli": "npm run start --workspace @aiops-sentinel/cli",
     "lint": "eslint ."
   },

@@ -5,6 +5,7 @@ export type LogicalMetric =
   | "http_latency"
   | "http_error_count"
   | "http_error_rate"
+  | "http_qps"
   | "jvm_memory"
   | "jvm_gc"
   | "process_cpu"
@@ -28,7 +29,7 @@ export const resolvePromQl = (metric: string, target: TargetConfig, service: str
     http_request_count: `sum(rate(http_server_requests_seconds_count{${selector}}[5m]))`,
     http_latency: `histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{${selector}}[5m])) by (le, uri, method, application))`,
     http_error_count: `sum(rate(http_server_requests_seconds_count{${selector},status=~"5.."}[5m]))`,
-    http_error_rate: `sum(rate(http_server_requests_seconds_count{${selector},status=~"5.."}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{${selector}}[5m])), 0.001)`,
+    http_error_rate: `100 * (sum(rate(http_server_requests_seconds_count{${selector},status=~"5.."}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{${selector}}[5m])), 0.001))`,
     http_qps: `sum(rate(http_server_requests_seconds_count{${selector}}[5m]))`,
     jvm_memory: `sum(jvm_memory_used_bytes{job="${job}"}) by (area)`,
     jvm_gc: `sum(rate(jvm_gc_pause_seconds_count{job="${job}"}[5m]))`,

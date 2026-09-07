@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { getIncident, toolCatalog } from "@aiops-sentinel/core";
+import { getIncident, toolCatalog } from "@aiops-sentinel/core/tools";
 import { executeProviderBackedTool } from "@aiops-sentinel/core/provider-tools";
 import type { LogEntry, ToolContext, ToolName, ToolResult } from "@aiops-sentinel/core";
 
@@ -116,11 +116,14 @@ server.registerTool(
     title: "Query Dependency",
     description: "查询服务依赖链，判断故障是否来自上下游扩散。",
     inputSchema: {
-      serviceId: z.string().describe("服务 ID，例如 svc-order"),
+      target: z.string().optional().describe("目标系统 ID，例如 nexus-commerce 或 demo-service"),
+      service: z.string().optional().describe("目标系统内服务名，例如 order-service"),
+      serviceId: z.string().optional().describe("服务 ID，例如 svc-order"),
       context: z.object({ incidentId: z.string().optional(), serviceId: z.string().optional() }).optional()
     }
   },
-  async ({ serviceId, context }) => call("dependency_trace", { serviceId }, { serviceId, context })
+  async ({ target, service, serviceId, context }) =>
+    call("dependency_trace", { target, service, serviceId }, { serviceId, context })
 );
 
 server.registerTool(
@@ -145,12 +148,16 @@ server.registerTool(
     title: "Search Knowledge",
     description: "检索 Runbook 和历史处置知识，为诊断提供 RAG 证据。",
     inputSchema: {
-      serviceId: z.string().describe("服务 ID，例如 svc-order"),
+      target: z.string().optional().describe("目标系统 ID，例如 nexus-commerce 或 demo-service"),
+      service: z.string().optional().describe("目标系统内服务名，例如 order-service"),
+      serviceId: z.string().optional().describe("服务 ID，例如 svc-order"),
       query: z.string().optional().describe("检索词，可以使用故障标题或当前假设"),
+      keyword: z.string().optional().describe("可选关键词，例如 timeout、fallback"),
       context: z.object({ incidentId: z.string().optional(), serviceId: z.string().optional() }).optional()
     }
   },
-  async ({ serviceId, query, context }) => call("knowledge_search", { serviceId, query }, { serviceId, context })
+  async ({ target, service, serviceId, query, keyword, context }) =>
+    call("knowledge_search", { target, service, serviceId, query, keyword }, { serviceId, context })
 );
 
 server.registerTool(

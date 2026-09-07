@@ -73,7 +73,12 @@ export const initializeDatabase = () => {
       completed_at TEXT NOT NULL,
       total_duration_ms INTEGER NOT NULL,
       steps TEXT NOT NULL,
-      diagnosis TEXT NOT NULL
+      diagnosis TEXT NOT NULL,
+      agent_run TEXT,
+      checkpoint TEXT,
+      pending_action_proposal TEXT,
+      approval_decision TEXT,
+      error_message TEXT
     );
 
     CREATE TABLE IF NOT EXISTS audit_events (
@@ -86,6 +91,12 @@ export const initializeDatabase = () => {
       created_at TEXT NOT NULL
     );
   `);
+
+  addColumnIfMissing("diagnosis_tasks", "agent_run", "TEXT");
+  addColumnIfMissing("diagnosis_tasks", "checkpoint", "TEXT");
+  addColumnIfMissing("diagnosis_tasks", "pending_action_proposal", "TEXT");
+  addColumnIfMissing("diagnosis_tasks", "approval_decision", "TEXT");
+  addColumnIfMissing("diagnosis_tasks", "error_message", "TEXT");
 
   seedTable("services", () => {
     const insert = db.prepare(
@@ -138,6 +149,13 @@ const seedTable = (tableName: string, seed: () => void) => {
   const row = db.prepare(`SELECT COUNT(*) as count FROM ${tableName}`).get() as { count: number };
   if (row.count === 0) {
     seed();
+  }
+};
+
+const addColumnIfMissing = (tableName: string, columnName: string, definition: string) => {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === columnName)) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
   }
 };
 
@@ -231,8 +249,8 @@ export const repository = {
   saveDiagnosisTask: (task: DiagnosisTask) => {
     db.prepare(
       `INSERT OR REPLACE INTO diagnosis_tasks
-       (id, incident_id, status, started_at, completed_at, total_duration_ms, steps, diagnosis)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+       (id, incident_id, status, started_at, completed_at, total_duration_ms, steps, diagnosis, agent_run, checkpoint, pending_action_proposal, approval_decision, error_message)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       task.id,
       task.incidentId,
@@ -241,7 +259,12 @@ export const repository = {
       task.completedAt,
       task.totalDurationMs,
       JSON.stringify(task.steps),
-      JSON.stringify(task.diagnosis)
+      JSON.stringify(task.diagnosis),
+      JSON.stringify(task.agentRun ?? null),
+      JSON.stringify(task.checkpoint ?? null),
+      JSON.stringify(task.pendingActionProposal ?? null),
+      JSON.stringify(task.approvalDecision ?? null),
+      task.errorMessage ?? null
     );
   },
 
@@ -258,6 +281,11 @@ export const repository = {
       total_duration_ms: number;
       steps: string;
       diagnosis: string;
+      agent_run?: string | null;
+      checkpoint?: string | null;
+      pending_action_proposal?: string | null;
+      approval_decision?: string | null;
+      error_message?: string | null;
     }>;
 
     return rows.map((row) => ({
@@ -277,7 +305,12 @@ export const repository = {
         recommendation: "暂无",
         rollbackAdvice: "暂无",
         evidence: []
-      })
+      }),
+      agentRun: readJson(row.agent_run, undefined),
+      checkpoint: readJson(row.checkpoint, undefined),
+      pendingActionProposal: readJson(row.pending_action_proposal, undefined),
+      approvalDecision: readJson(row.approval_decision, undefined),
+      errorMessage: row.error_message ?? undefined
     }));
   },
 
