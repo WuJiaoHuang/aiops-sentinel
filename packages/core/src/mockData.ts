@@ -23,6 +23,27 @@ export const services: Service[] = [
     dependencies: ["svc-mysql", "svc-redis"]
   },
   {
+    id: "order-service",
+    name: "order-service",
+    owner: "commerce",
+    runtime: "Java 17 / Spring Boot 3",
+    dependencies: ["product-service", "inventory-service", "mysql"]
+  },
+  {
+    id: "product-service",
+    name: "product-service",
+    owner: "commerce",
+    runtime: "Java 17 / Spring Boot 3",
+    dependencies: ["mysql", "redis"]
+  },
+  {
+    id: "inventory-service",
+    name: "inventory-service",
+    owner: "commerce",
+    runtime: "Java 17 / Spring Boot 3",
+    dependencies: ["mysql", "redis"]
+  },
+  {
     id: "svc-redis",
     name: "redis-cache",
     owner: "infra",
@@ -56,6 +77,15 @@ export const incidents: Incident[] = [
     status: "open",
     startedAt: "2026-08-24T09:25:00.000Z",
     summary: "移动端登录请求 P95 延迟超过 900ms，用户仍可登录但体验明显变慢。"
+  },
+  {
+    id: "inc-nexus-preview-degraded",
+    serviceId: "order-service",
+    title: "order preview degraded",
+    severity: "critical",
+    status: "investigating",
+    startedAt: "2026-09-07T00:00:00.000Z",
+    summary: "order preview latency increased, downstream calls failing, order preview degraded."
   }
 ];
 

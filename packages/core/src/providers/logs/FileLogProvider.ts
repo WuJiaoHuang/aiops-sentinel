@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { TargetConfig, LogQueryRequest, LogQueryResult, ObservabilityLogEntry } from "../types";
 import type { LogProvider } from "./LogProvider";
+import { getServiceLogPath } from "../targets/TargetConfigLoader";
 
 export class FileLogProvider implements LogProvider {
   readonly name = "file";
@@ -10,7 +11,8 @@ export class FileLogProvider implements LogProvider {
 
   async query(request: LogQueryRequest): Promise<LogQueryResult> {
     const startedAt = Date.now();
-    const logPath = this.target.logPath ? path.resolve(process.cwd(), this.target.logPath) : "";
+    const configuredLogPath = getServiceLogPath(this.target, request.service);
+    const logPath = configuredLogPath ? path.resolve(process.cwd(), configuredLogPath) : "";
 
     if (!logPath || !existsSync(logPath)) {
       return {
@@ -73,7 +75,9 @@ export class FileLogProvider implements LogProvider {
         }
       };
     } catch {
-      const matched = line.match(/^(?<timestamp>\S+)\s+(?<level>ERROR|WARN|INFO|DEBUG)\s+(?<message>.*)$/);
+      const matched = line.match(
+        /^(?<timestamp>\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d{3})?(?:Z|[+-]\d{2}:\d{2})?)?)\s+(?<level>ERROR|WARN|INFO|DEBUG)\s+(?<message>.*)$/
+      );
       return {
         timestamp: matched?.groups?.timestamp ?? new Date().toISOString(),
         service: fallbackService,

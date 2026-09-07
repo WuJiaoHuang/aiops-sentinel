@@ -144,6 +144,48 @@ callTool: query_logs
 npm run test:mcp
 ```
 
+## Nexus Commerce 真实观测目标
+
+本项目保留 mock mode，同时支持把 `Nexus Commerce` 作为真实被观测系统。真实链路只使用三类数据源：
+
+- Prometheus Metrics：通过 `PROMETHEUS_BASE_URL` 查询 Nexus Spring Boot 服务暴露的 `/actuator/prometheus` 指标。
+- Spring Boot Actuator Health：按服务访问 `/actuator/health`。
+- Spring Boot 文件日志：读取 Nexus 服务写入的 `logs/*.log`。
+
+启用 Nexus 观测时设置：
+
+```bash
+TARGET_SERVICE_NAME=nexus-commerce
+METRICS_PROVIDER=prometheus
+LOG_PROVIDER=file
+HEALTH_PROVIDER=springboot
+PROMETHEUS_BASE_URL=http://localhost:9090
+NEXUS_COMMERCE_ROOT=<local Nexus_Commerce path>
+```
+
+`config/targets.yaml` 中已经配置 Nexus 服务映射：
+
+```text
+api-gateway       http://localhost:8183
+user-service      http://localhost:8180
+product-service   http://localhost:8081
+order-service     http://localhost:8084
+inventory-service http://localhost:8085
+```
+
+Nexus 端真实故障验证命令：
+
+```bash
+npm run verify:nexus
+```
+
+该命令会调用真实 provider-backed tools，验证 `product-service` 停机时：
+
+- `get_service_health` 返回 Spring Boot health 的 `DOWN` / 不可达状态。
+- `query_metrics` 从 Prometheus 读取 `order-service` 的 HTTP 指标。
+- `query_logs` 从 `order-service.log` 命中 product-service 调用失败和 fallback 日志。
+- Agent 基于工具证据输出 `product-service unavailable -> order-service downstream invocation failed -> retry / timeout / fallback -> order preview degraded`。
+
 ## Tool Contract
 
 所有 Tool 统一通过 `toolRegistry` 注册：

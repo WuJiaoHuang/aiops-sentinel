@@ -74,6 +74,8 @@ export type HealthQueryResult = {
 
 export type ServiceMetadata = {
   framework?: string;
+  baseUrl?: string;
+  logPath?: string;
   dependencies: string[];
 };
 

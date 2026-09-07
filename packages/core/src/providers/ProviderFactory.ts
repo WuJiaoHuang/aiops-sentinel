@@ -8,7 +8,7 @@ import type { LogProvider } from "./logs/LogProvider";
 import { MockMetricsProvider } from "./metrics/MockMetricsProvider";
 import { PrometheusMetricsProvider } from "./metrics/PrometheusMetricsProvider";
 import type { MetricsProvider } from "./metrics/MetricsProvider";
-import { getTargetConfig } from "./target/TargetConfigLoader";
+import { getTargetConfig } from "./targets/TargetConfigLoader";
 
 export const createMetricsProvider = (target: TargetConfig): MetricsProvider => {
   if ((process.env.METRICS_PROVIDER ?? target.metricsProvider) === "prometheus") {

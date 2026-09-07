@@ -54,43 +54,61 @@ const withRetry = async <T>(operation: () => Promise<T>, config: DeepSeekConfig,
   throw lastError instanceof Error ? lastError : new Error(`${label} 调用失败`);
 };
 
-export const buildMockDiagnosis = (incident: Incident, evidence: EvidenceItem[], uncertain = false): Diagnosis => ({
-  incidentId: incident.id,
-  modelSource: "mock",
-  rootCause: uncertain
-    ? "当前证据不足，Agent 无法确定唯一根因。"
-    : incident.serviceId === "svc-order"
-      ? "本次下单失败大概率由 order-service 最新发布后支付服务超时向主链路扩散导致。"
-      : "本次延迟问题大概率与登录链路中的 Redis token 查询变慢有关。",
-  confidence: uncertain ? 0.45 : incident.severity === "critical" ? 0.84 : 0.72,
-  impact:
-    incident.severity === "critical"
-      ? "到达支付确认环节的用户下单成功率下降，核心交易链路受到影响。"
-      : "核心功能仍然可用，但用户会明显感知响应变慢。",
-  recommendation: uncertain
-    ? "建议继续补充日志、指标、依赖链路和变更记录，暂不执行高风险修复。"
-    : incident.severity === "critical"
-      ? "建议先开启超时降级，降低重试放大效应，同步通知业务负责人，并准备人工确认后的受控回滚。"
-      : "建议检查缓存、数据库或下游依赖延迟，必要时临时扩容热点资源。",
-  rollbackAdvice:
-    incident.severity === "critical"
-      ? "如需回滚，只生成建议，不自动执行；必须由值班负责人确认。"
-      : "当前证据不足，不建议立即回滚业务代码。",
-  evidence,
-  uncertain,
-  actionProposals:
-    incident.severity === "critical"
-      ? [
-          {
-            action: "rollback version",
-            reason: "严重故障且错误率可能超过阈值，回滚属于高风险线上操作。",
-            riskLevel: "HIGH",
-            evidence: evidence.map((item) => item.title).slice(0, 4),
-            requiresApproval: true
-          }
-        ]
-      : []
-});
+export const buildMockDiagnosis = (incident: Incident, evidence: EvidenceItem[], uncertain = false): Diagnosis => {
+  const evidenceText = evidence.map((item) => item.detail).join("\n").toLowerCase();
+  const hasProductDown = evidenceText.includes("product-service") && evidenceText.includes("down");
+  const hasOrderDownstreamFailure =
+    evidenceText.includes("order-service") &&
+    (evidenceText.includes("product-service call failed") ||
+      evidenceText.includes("fallback") ||
+      evidenceText.includes("timeout") ||
+      evidenceText.includes("retry"));
+  const nexusRootCause =
+    "product-service unavailable -> order-service downstream invocation failed -> retry / timeout / fallback -> order preview degraded";
+  const resolvedUncertain = uncertain && !(hasProductDown && hasOrderDownstreamFailure);
+
+  return {
+    incidentId: incident.id,
+    modelSource: "mock",
+    rootCause: resolvedUncertain
+      ? "当前证据不足，Agent 无法确定唯一根因。"
+      : hasProductDown && hasOrderDownstreamFailure
+        ? nexusRootCause
+        : incident.serviceId === "svc-order"
+          ? "本次下单失败大概率由 order-service 最新发布后支付服务超时向主链路扩散导致。"
+          : "本次延迟问题大概率与登录链路中的 Redis token 查询变慢有关。",
+    confidence: resolvedUncertain ? 0.45 : incident.severity === "critical" ? 0.84 : 0.72,
+    impact:
+      incident.severity === "critical"
+        ? "到达支付确认环节的用户下单成功率下降，核心交易链路受到影响。"
+        : "核心功能仍然可用，但用户会明显感知响应变慢。",
+    recommendation: resolvedUncertain
+      ? "建议继续补充日志、指标、依赖链路和变更记录，暂不执行高风险修复。"
+      : hasProductDown && hasOrderDownstreamFailure
+        ? "优先恢复 product-service，并观察 order-service 预览接口延迟、错误率和 fallback 日志是否回落。"
+        : incident.severity === "critical"
+          ? "建议先开启超时降级，降低重试放大效应，同步通知业务负责人，并准备人工确认后的受控回滚。"
+          : "建议检查缓存、数据库或下游依赖延迟，必要时临时扩容热点资源。",
+    rollbackAdvice:
+      incident.severity === "critical"
+        ? "如需回滚，只生成建议，不自动执行；必须由值班负责人确认。"
+        : "当前证据不足，不建议立即回滚业务代码。",
+    evidence,
+    uncertain: resolvedUncertain,
+    actionProposals:
+      incident.severity === "critical"
+        ? [
+            {
+              action: "rollback version",
+              reason: "严重故障且错误率可能超过阈值，回滚属于高风险线上操作。",
+              riskLevel: "HIGH",
+              evidence: evidence.map((item) => item.title).slice(0, 4),
+              requiresApproval: true
+            }
+          ]
+        : []
+  };
+};
 
 const extractJson = (content: string) => {
   const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/i);

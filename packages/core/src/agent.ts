@@ -50,6 +50,10 @@ const addMessage = (state: AgentState, role: AgentState["messages"][number]["rol
 
 const summarizeToolData = (toolName: ToolName, result: ToolResult): string => {
   if (!result.success) {
+    if (toolName === "service_health") {
+      const payload = result.data as { provider?: string; health?: { service?: string; status?: string } } | null;
+      return `provider=${payload?.provider ?? result.provider ?? result.source}；服务 ${payload?.health?.service ?? "unknown"} 健康状态 ${payload?.health?.status ?? "unknown"}；${result.error ?? "未知错误"}`;
+    }
     return `${toolName} 调用失败：${result.error ?? "未知错误"}`;
   }
 
@@ -114,12 +118,19 @@ const evidenceFromToolResult = (toolName: ToolName, result: ToolResult): Evidenc
 
 const latestErrorRate = (state: AgentState) => {
   const metricCall = [...state.toolCalls].reverse().find((call) => call.toolName === "metric_query" && call.result?.success);
-  const points = (metricCall?.result?.data ?? []) as MetricPoint[];
-  return points.at(-1)?.errorRate ?? 0;
+  if (Array.isArray(metricCall?.result?.data)) {
+    const points = (metricCall.result.data ?? []) as MetricPoint[];
+    return points.at(-1)?.errorRate ?? 0;
+  }
+
+  const metricResult = metricCall?.result?.data as { series?: Array<{ metricName: string; points: Array<{ value: number }> }> } | null;
+  const errorRateSeries = metricResult?.series?.find((series) => series.metricName === "http_error_rate");
+  return errorRateSeries?.points.at(-1)?.value ?? 0;
 };
 
 const fallbackDecision = (state: AgentState): AgentDecision => {
   const called = new Set(state.toolCalls.map((call) => call.toolName));
+  const nexusMode = process.env.TARGET_SERVICE_NAME === "nexus-commerce" && state.incident.serviceId === "order-service";
   const hasErrorEvidence = state.evidence.some((item) => item.detail.toLowerCase().includes("timeout"));
   const hasCriticalHealth = state.evidence.some((item) => item.detail.includes("critical") || item.detail.includes("错误率"));
 
@@ -135,11 +146,15 @@ const fallbackDecision = (state: AgentState): AgentDecision => {
   const signal: DynamicSignal =
     !called.has("incident_summary")
       ? { selectedTool: "incident_summary" }
-      : !called.has("service_health")
-        ? { selectedTool: "service_health" }
-        : hasCriticalHealth && !called.has("metric_query")
+      : nexusMode && !called.has("metric_query")
+        ? { selectedTool: "metric_query" }
+        : nexusMode && !called.has("log_search")
+          ? { selectedTool: "log_search" }
+          : !called.has("service_health")
+            ? { selectedTool: "service_health" }
+            : !called.has("metric_query")
           ? { selectedTool: "metric_query" }
-          : hasCriticalHealth && !called.has("log_search")
+          : !called.has("log_search")
             ? { selectedTool: "log_search" }
             : hasErrorEvidence && !called.has("dependency_trace")
               ? { selectedTool: "dependency_trace" }
@@ -162,9 +177,9 @@ const fallbackDecision = (state: AgentState): AgentDecision => {
   const serviceId = state.incident.serviceId;
   const inputByTool: Record<ToolName, Record<string, unknown>> = {
     incident_summary: { incidentId: state.incident.id },
-    service_health: { serviceId },
-    metric_query: { serviceId },
-    log_search: { serviceId, level: "error" },
+    service_health: nexusMode ? { service: "product-service" } : { serviceId },
+    metric_query: nexusMode ? { service: serviceId, metric: "http_latency" } : { serviceId, metric: "http_latency" },
+    log_search: nexusMode ? { service: serviceId, level: "warn", keyword: "product-service" } : { serviceId, level: "error" },
     dependency_trace: { serviceId },
     knowledge_search: { serviceId, query: state.currentHypothesis || state.incident.title },
     rollback_advisor: { incidentId: state.incident.id, errorRate: latestErrorRate(state) }

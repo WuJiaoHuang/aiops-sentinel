@@ -15,6 +15,7 @@ type McpToolRuntimeConfig = {
   command?: string;
   args?: string[];
   cwd?: string;
+  env?: Record<string, string>;
   toolTimeoutMs?: number;
 };
 
@@ -45,6 +46,9 @@ const findRepoRoot = () => {
 const defaultServerCommand = () => (process.platform === "win32" ? "npm.cmd" : "npm");
 
 const defaultServerArgs = () => ["run", "start", "--workspace", "@aiops-sentinel/mcp-server", "--silent"];
+
+const inheritedEnv = () =>
+  Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -87,6 +91,7 @@ export const createMcpToolRuntime = async (config: McpToolRuntimeConfig = {}): P
     command: config.command ?? process.env.AIOPS_MCP_COMMAND ?? defaultServerCommand(),
     args: config.args ?? defaultServerArgs(),
     cwd: config.cwd ?? process.env.AIOPS_MCP_CWD ?? findRepoRoot(),
+    env: config.env ?? inheritedEnv(),
     stderr: "pipe"
   });
 

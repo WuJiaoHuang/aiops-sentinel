@@ -26,3 +26,51 @@ targets:
         dependencies:
           - mysql
           - redis
+
+  nexus-commerce:
+    type: spring-boot
+    metricsProvider: prometheus
+    logProvider: file
+    healthProvider: springboot
+    services:
+      api-gateway:
+        framework: spring-boot
+        baseUrl: http://localhost:8183
+        logPath: ${NEXUS_COMMERCE_ROOT}/logs/api-gateway.log
+        dependencies:
+          - user-service
+          - product-service
+          - order-service
+          - inventory-service
+      user-service:
+        framework: spring-boot
+        baseUrl: http://localhost:8180
+        logPath: ${NEXUS_COMMERCE_ROOT}/logs/user-service.log
+        dependencies:
+          - mysql
+          - kafka
+      product-service:
+        framework: spring-boot
+        baseUrl: http://localhost:8081
+        logPath: ${NEXUS_COMMERCE_ROOT}/logs/product-service.log
+        dependencies:
+          - mysql
+          - redis
+          - kafka
+      order-service:
+        framework: spring-boot
+        baseUrl: http://localhost:8084
+        logPath: ${NEXUS_COMMERCE_ROOT}/logs/order-service.log
+        dependencies:
+          - product-service
+          - inventory-service
+          - mysql
+          - kafka
+      inventory-service:
+        framework: spring-boot
+        baseUrl: http://localhost:8085
+        logPath: ${NEXUS_COMMERCE_ROOT}/logs/inventory-service.log
+        dependencies:
+          - mysql
+          - redis
+          - kafka

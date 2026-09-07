@@ -1,5 +1,6 @@
 import type { TargetConfig, HealthQueryRequest, HealthQueryResult, ServiceHealth } from "../types";
 import type { HealthProvider } from "./HealthProvider";
+import { getServiceBaseUrl } from "../targets/TargetConfigLoader";
 
 type ActuatorHealth = {
   status?: string;
@@ -29,8 +30,9 @@ export class SpringBootHealthProvider implements HealthProvider {
 
   async getHealth(request: HealthQueryRequest): Promise<HealthQueryResult> {
     const startedAt = Date.now();
+    const baseUrl = getServiceBaseUrl(this.target, request.service);
 
-    if (!this.target.baseUrl) {
+    if (!baseUrl) {
       return {
         success: false,
         provider: this.name,
@@ -39,13 +41,13 @@ export class SpringBootHealthProvider implements HealthProvider {
           status: "UNKNOWN",
           checkedAt: new Date().toISOString()
         },
-        error: `target ${request.target} 未配置 baseUrl`,
+        error: `target ${request.target} service ${request.service} 未配置 baseUrl`,
         latencyMs: Date.now() - startedAt
       };
     }
 
     try {
-      const response = await fetch(new URL("/actuator/health", this.target.baseUrl));
+      const response = await fetch(new URL("/actuator/health", baseUrl));
       const payload = (await response.json()) as ActuatorHealth;
       const health = {
         service: request.service,
@@ -71,7 +73,7 @@ export class SpringBootHealthProvider implements HealthProvider {
         provider: this.name,
         health: {
           service: request.service,
-          status: "UNKNOWN",
+          status: "DOWN",
           checkedAt: new Date().toISOString()
         },
         error: error instanceof Error ? error.message : "Actuator health 查询失败",
